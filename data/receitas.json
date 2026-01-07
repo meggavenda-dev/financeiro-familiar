@@ -1,1 +1,13 @@
+[
+  {
+    "id": "r-2026-01-001",
+    "data": "2026-01-05",
+    "valor": 5000.00,
+    "categoria_id": "cr1",
+    "conta_id": "c1",
+    "pessoa_id": "u1",
+    "recorrente": false,
+    "observacoes": "Salário Janeiro"
+  }
+]
 
