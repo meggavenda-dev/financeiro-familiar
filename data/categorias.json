@@ -1,24 +1,4 @@
-{
-  "despesas": [
-    {
-      "id": "cd1",
-      "nome": "Alimentação",
-      "tipos": [
-        { "id": "td1", "nome": "Supermercado" },
-        { "id": "td2", "nome": "Restaurante" },
-        { "id": "td3", "nome": "Delivery" }
-      ]
-    }
-  ],
-  "receitas": [
-    {
-      "id": "cr1",
-      "nome": "Renda",
-      "tipos": [
-        { "id": "tr1", "nome": "Salário" },
-        { "id": "tr2", "nome": "Freelancer" },
-        { "id": "tr3", "nome": "Aluguel" }
-      ]
-    }
-  ]
-}
+[
+  { "id": "cat1", "nome": "Alimentação", "tipo": "despesa" },
+  { "id": "cat2", "nome": "Salário", "tipo": "receita" }
+]
