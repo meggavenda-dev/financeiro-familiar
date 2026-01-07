@@ -2,25 +2,32 @@
 # pages/3_Metas.py
 import streamlit as st
 from datetime import date
-from github_service import GitHubService
+from services.app_context import get_context
+from services.data_loader import load_all
 
+st.set_page_config("Metas", "🎯", layout="wide")
 st.title("🎯 Metas Financeiras")
 
-gh = GitHubService(
-    token=st.secrets["github_token"],
-    repo_full_name=st.secrets["repo_full_name"]
-)
+ctx = get_context()
+data = load_all((st.secrets["repo_full_name"], st.secrets.get("branch_name", "main")))
 
-metas, _ = gh.get_json("data/metas.json", [])
+metas = data["data/metas.json"]["content"]
+
+if not metas:
+    st.info("Nenhuma meta cadastrada.")
+    st.stop()
 
 for m in metas:
-    progresso = m["valor_acumulado"] / m["valor_meta"]
+    valor_meta = float(m["valor_meta"])
+    acumulado = float(m["valor_acumulado"])
+    progresso = min(acumulado / valor_meta, 1.0)
+
     meses = max((date.fromisoformat(m["data_meta"]) - date.today()).days // 30, 1)
-    aporte = (m["valor_meta"] - m["valor_acumulado"]) / meses
+    aporte = (valor_meta - acumulado) / meses if acumulado < valor_meta else 0
 
     st.subheader(m["nome"])
-    st.progress(min(progresso, 1.0))
-    st.write(f"📅 Até {m['data_meta']}")
-    st.write(f"💰 Meta: R$ {m['valor_meta']:.2f}")
-    st.write(f"📈 Progresso: {progresso*100:.1f}%")
-    st.info(f"Sugestão de aporte mensal: **R$ {aporte:.2f}**")
+    st.progress(progresso)
+    st.write(f"Meta: R$ {valor_meta:,.2f}")
+    st.write(f"Acumulado: R$ {acumulado:,.2f}")
+    st.write(f"Progresso: {progresso*100:.1f}%")
+    st.info(f"Sugestão de aporte mensal: **R$ {aporte:,.2f}**")
