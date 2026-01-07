@@ -5,12 +5,15 @@ from datetime import date
 from services.app_context import get_context
 from services.data_loader import load_all
 
-st.set_page_config("Metas", "🎯", layout="wide")
+st.set_page_config(page_title="Metas", page_icon="🎯", layout="wide")
 st.title("🎯 Metas Financeiras")
 
 ctx = get_context()
-data = load_all((st.secrets["repo_full_name"], st.secrets.get("branch_name", "main")))
+if not ctx.connected:
+    st.warning("Conecte ao GitHub na página principal.")
+    st.stop()
 
+data = load_all((ctx.repo_full_name, ctx.branch_name))
 metas = data["data/metas.json"]["content"]
 
 if not metas:
@@ -18,14 +21,17 @@ if not metas:
     st.stop()
 
 for m in metas:
-    valor_meta = float(m["valor_meta"])
-    acumulado = float(m["valor_acumulado"])
-    progresso = min(acumulado / valor_meta, 1.0)
+    valor_meta = float(m.get("valor_meta", 0.0))
+    acumulado = float(m.get("valor_acumulado", 0.0))
+    progresso = min(acumulado / valor_meta, 1.0) if valor_meta > 0 else 0.0
 
-    meses = max((date.fromisoformat(m["data_meta"]) - date.today()).days // 30, 1)
-    aporte = (valor_meta - acumulado) / meses if acumulado < valor_meta else 0
+    try:
+        meses = max((date.fromisoformat(m["data_meta"]) - date.today()).days // 30, 1)
+    except Exception:
+        meses = 1
+    aporte = (valor_meta - acumulado) / meses if acumulado < valor_meta else 0.0
 
-    st.subheader(m["nome"])
+    st.subheader(m.get("nome", "Meta"))
     st.progress(progresso)
     st.write(f"Meta: R$ {valor_meta:,.2f}")
     st.write(f"Acumulado: R$ {acumulado:,.2f}")
