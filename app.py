@@ -55,28 +55,37 @@ with st.sidebar:
 # Dados
 # -------------------------------------------------
 data = load_all((ctx.repo_full_name, ctx.branch_name))
-transacoes = [normalizar_tx(x) for x in data["data/transacoes.json"]["content"]]
+
+# ✅ IMPORTANTE: filtrar None (normalizar_tx agora é defensiva)
+transacoes = [
+    t for t in (normalizar_tx(x) for x in data["data/transacoes.json"]["content"])
+    if t is not None
+]
 contas = data["data/contas.json"]["content"]
 
 # -------------------------------------------------
-# KPIs básicos
+# KPIs básicos do mês corrente
 # -------------------------------------------------
 hoje = date.today()
 inicio = date(hoje.year, hoje.month, 1)
 
 df = pd.DataFrame(transacoes)
 if not df.empty:
-    df["tipo"] = df["tipo"].astype(str)
-    df["valor"] = df["valor"].astype(float)
-    df["data_ref"] = pd.to_datetime(df["data_efetiva"].fillna(df["data_prevista"]), errors="coerce").dt.date
+    # coluna de referência de data: usa efetiva, senão prevista
+    df["data_ref"] = pd.to_datetime(
+        df["data_efetiva"].fillna(df["data_prevista"]),
+        errors="coerce"
+    ).dt.date
     df = df[(df["data_ref"] >= inicio) & (df["data_ref"] <= hoje)]
+    df["valor"] = pd.to_numeric(df["valor"], errors="coerce").fillna(0.0)
+    df["tipo"] = df["tipo"].astype(str)
     df["status"] = df.apply(lambda r: derivar_status(r.get("data_prevista"), r.get("data_efetiva")), axis=1)
 
-total_receitas = float(df[df["tipo"]=="receita"]["valor"].sum()) if not df.empty else 0.0
-total_despesas = float(df[df["tipo"]=="despesa"]["valor"].sum()) if not df.empty else 0.0
+total_receitas = float(df[df["tipo"] == "receita"]["valor"].sum()) if not df.empty else 0.0
+total_despesas = float(df[df["tipo"] == "despesa"]["valor"].sum()) if not df.empty else 0.0
 saldo_mes = total_receitas - total_despesas
 
-# Saldos por conta (calculados em transações pagas)
+# Saldos por conta (calculados com transações pagas)
 saldo_total = 0.0
 for conta in contas:
     saldo_total += saldo_atual(conta, transacoes)
@@ -91,10 +100,15 @@ st.divider()
 
 st.subheader("📈 Tendência de saldo no mês")
 if not df.empty:
-    movs = pd.concat([
-        df[df["tipo"]=="receita"].assign(valor_signed=df[df["tipo"]=="receita"]["valor"]),
-        df[df["tipo"]=="despesa"].assign(valor_signed=-df[df["tipo"]=="despesa"]["valor"]),
-    ])
+    receitas_df = df[df["tipo"] == "receita"].copy()
+    despesas_df = df[df["tipo"] == "despesa"].copy()
+
+    receitas_df["valor_signed"] = receitas_df["valor"]
+    despesas_df["valor_signed"] = -despesas_df["valor"]
+
+    movs = pd.concat([receitas_df[["data_ref", "valor_signed"]],
+                      despesas_df[["data_ref", "valor_signed"]]], ignore_index=True)
+    movs = movs.sort_values("data_ref")
     saldo_diario = movs.groupby("data_ref")["valor_signed"].sum().cumsum()
     st.line_chart(saldo_diario)
 else:
