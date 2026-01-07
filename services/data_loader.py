@@ -11,7 +11,14 @@ DEFAULTS = {
         {"id": "u1", "nome": "Administrador", "perfil": "admin", "ativo": True}
     ],
     "data/contas.json": [
-        {"id": "c1", "nome": "Conta Corrente", "tipo": "banco", "moeda": "BRL", "saldo_inicial": 0.0, "ativa": True}
+        {
+            "id": "c1",
+            "nome": "Conta Corrente",
+            "tipo": "banco",
+            "moeda": "BRL",
+            "saldo_inicial": 0.0,
+            "ativa": True
+        }
     ],
     "data/categorias.json": [
         {"id": "cat1", "nome": "Moradia", "tipo": "despesa"},
@@ -141,13 +148,31 @@ def _migrar_legado(gh, data_dict: dict) -> None:
         st.cache_data.clear()
 
 
+def _sanitizar_lista_de_dicts(gh, path: str, obj, sha: str, commit_msg: str) -> tuple[list, str]:
+    """
+    Sanitiza um conteúdo de arquivo JSON que deve ser uma lista de dicts.
+    - Se 'obj' não for lista, transforma em lista vazia.
+    - Remove qualquer item que não seja dict.
+    - Se houve alteração, comita e retorna (lista_sanitizada, novo_sha).
+    - Caso contrário, retorna (obj_original, sha_original).
+    """
+    if not isinstance(obj, list):
+        obj = []
+
+    clean = [x for x in obj if isinstance(x, dict)]
+    if len(clean) != len(obj):
+        new_sha = gh.put_json(path, clean, commit_msg, sha=sha)
+        return clean, new_sha
+    return obj, sha
+
+
 @st.cache_data(ttl=60, show_spinner=False)
 def load_all(cache_key: tuple):
     """
     Lê todos os arquivos via GitHubService presente no contexto.
     Usa (repo_full_name, branch_name) como chave do cache, evitando erro de hash.
     - Executa migração automática do legado para transações unificadas.
-    - Sanitiza transacoes.json (remove itens inválidos que não sejam dict).
+    - Sanitiza transacoes.json e metas.json (remove itens inválidos que não sejam dict).
     """
     ctx = get_context()
     if not ctx.connected:
@@ -164,22 +189,20 @@ def load_all(cache_key: tuple):
     # MIGRA LEGADO -> transacoes.json (se estiver vazio)
     _migrar_legado(gh, data)
 
-    # RECARREGA transacoes.json (após migração)
+    # RECARREGA transacoes.json (após migração) e sanitiza
     obj, sha = gh.ensure_file("data/transacoes.json", [])
-    # SANITIZA: mantém apenas dicionários (evita erros futuros)
-    if not isinstance(obj, list):
-        obj = []
-    clean = [x for x in obj if isinstance(x, dict)]
-    if len(clean) != len(obj):
-        sha = gh.put_json(
-            "data/transacoes.json",
-            clean,
-            "Sanitiza transacoes.json (remove itens inválidos)",
-            sha=sha
-        )
-        obj = clean
-        # Importante: não é necessário limpar cache aqui, já estamos retornando o objeto saneado
-
+    obj, sha = _sanitizar_lista_de_dicts(
+        gh, "data/transacoes.json", obj, sha,
+        commit_msg="Sanitiza transacoes.json (remove itens inválidos)"
+    )
     data["data/transacoes.json"] = {"content": obj, "sha": sha}
+
+    # Sanitiza metas.json também (evita AttributeError em páginas)
+    obj_m, sha_m = gh.ensure_file("data/metas.json", [])
+    obj_m, sha_m = _sanitizar_lista_de_dicts(
+        gh, "data/metas.json", obj_m, sha_m,
+        commit_msg="Sanitiza metas.json (remove itens inválidos)"
+    )
+    data["data/metas.json"] = {"content": obj_m, "sha": sha_m}
 
     return data
