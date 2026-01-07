@@ -6,7 +6,7 @@
     "valor": 2000.0,
     "categoria_id": "cd1",
     "conta_id": "c1",
-    "status": "em_aberto",
+    "status": "atrasada",
     "recorrencia": "mensal",
     "observacoes": "",
     "paga_em": null
