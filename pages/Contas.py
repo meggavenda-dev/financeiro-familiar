@@ -16,12 +16,22 @@ require_admin(ctx)
 gh = ctx.gh
 
 data = load_all((ctx.repo_full_name, ctx.branch_name))
-pagar = data["data/contas_pagar.json"]["content"]
-receber = data["data/contas_receber.json"]["content"]
+
+pagar_map = data["data/contas_pagar.json"]
+receber_map = data["data/contas_receber.json"]
+
+contas_pagar = pagar_map["content"]
+contas_receber = receber_map["content"]
+
+# Guardamos os SHAs atuais dos arquivos para atualizar corretamente
+sha_map = {
+    "data/contas_pagar.json": pagar_map["sha"],
+    "data/contas_receber.json": receber_map["sha"],
+}
 
 for label, lista, path in [
-    ("A Pagar", pagar, "data/contas_pagar.json"),
-    ("A Receber", receber, "data/contas_receber.json"),
+    ("A Pagar", contas_pagar, "data/contas_pagar.json"),
+    ("A Receber", contas_receber, "data/contas_receber.json"),
 ]:
     st.subheader(label)
     if not lista:
@@ -29,18 +39,22 @@ for label, lista, path in [
         continue
 
     for c in lista:
-        col1, col2, col3 = st.columns([4, 2, 2])
-        col1.write(f"**{c['descricao']}**")
-        col2.write(f"R$ {c['valor']:.2f}")
+        col1, col2, col3 = st.columns([4, 2, 3])
+        col1.write(f"**{c.get('descricao', '—')}**")
+        col2.write(f"R$ {float(c.get('valor', 0.0)):.2f}")
         novo = col3.selectbox(
             "Status",
             ["em_aberto", "paga", "atrasada"],
-            index=["em_aberto", "paga", "atrasada"].index(c["status"]),
+            index=["em_aberto", "paga", "atrasada"].index(c.get("status", "em_aberto")),
             key=c["id"],
         )
-        if novo != c["status"]:
+        if novo != c.get("status", "em_aberto"):
             c["status"] = novo
-            gh.put_json(path, lista, f"Update status: {c['descricao']} -> {novo}")
+            # 👉 PASSAMOS O SHA correspondente ao arquivo
+            new_sha = gh.put_json(path, lista, f"Update status: {c['descricao']} -> {novo}", sha=sha_map[path])
+            # Opcional: atualiza o sha no runtime (se houver múltiplas alterações sem rerun)
+            sha_map[path] = new_sha
+
+            st.success(f"Status atualizado: {c['descricao']} → {novo}")
             st.cache_data.clear()
             st.rerun()
-
