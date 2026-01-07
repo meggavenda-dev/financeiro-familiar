@@ -1,1 +1,14 @@
+[
+  {
+    "id": "p-2026-01-001",
+    "descricao": "Aluguel",
+    "vencimento": "2026-01-05",
+    "valor": 2000.00,
+    "categoria_id": "cd1",
+    "conta_id": "c1",
+    "status": "em_aberto",
+    "recorrencia": "mensal",
+    "observacoes": ""
+  }
+]
 
