@@ -32,7 +32,10 @@ gh = ctx.gh
 # --------------------------------------------------
 data = load_all((ctx.repo_full_name, ctx.branch_name))
 trans_map = data["data/transacoes.json"]
-transacoes = [normalizar_tx(x) for x in trans_map["content"]]
+transacoes = [
+    t for t in (normalizar_tx(x) for x in trans_map["content"])
+    if t is not None
+]
 sha_trans = trans_map["sha"]
 
 def fmt_brl(v: float) -> str:
