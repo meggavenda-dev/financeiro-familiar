@@ -1,16 +1,24 @@
 {
-  "receitas": [
-    { "id": "cr1", "nome": "Salário" },
-    { "id": "cr2", "nome": "Freelancer" },
-    { "id": "cr3", "nome": "Aluguel Recebido" }
-  ],
   "despesas": [
-    { "id": "cd1", "nome": "Moradia" },
-    { "id": "cd2", "nome": "Alimentação" },
-    { "id": "cd3", "nome": "Transporte" },
-    { "id": "cd4", "nome": "Educação" },
-    { "id": "cd5", "nome": "Lazer" }
+    {
+      "id": "cd1",
+      "nome": "Alimentação",
+      "tipos": [
+        { "id": "td1", "nome": "Supermercado" },
+        { "id": "td2", "nome": "Restaurante" },
+        { "id": "td3", "nome": "Delivery" }
+      ]
+    }
+  ],
+  "receitas": [
+    {
+      "id": "cr1",
+      "nome": "Renda",
+      "tipos": [
+        { "id": "tr1", "nome": "Salário" },
+        { "id": "tr2", "nome": "Freelancer" },
+        { "id": "tr3", "nome": "Aluguel" }
+      ]
+    }
   ]
 }
-
-
