@@ -1,1 +1,7 @@
-
+{
+  "id": "e1",
+  "tipo": "pagamento",
+  "transacao_id": "tx-001",
+  "usuario_id": "u1",
+  "data": "2026-01-07T10:30:00"
+}
