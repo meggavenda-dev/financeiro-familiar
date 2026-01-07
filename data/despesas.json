@@ -1,14 +1,15 @@
-[
-  {
-    "id": "d-2026-01-001",
-    "data": "2026-01-10",
-    "valor": 350.00,
-    "categoria_id": "cd2",
-    "conta_id": "c1",
-    "pessoa_id": "u1",
-    "recorrente": false,
-    "parcelas": null,
-    "observacoes": "Supermercado"
-  }
-]
-
+{
+  "id": "d-20260107120000",
+  "data": "2026-01-05",
+  "valor": 420,
+  "categoria_id": "cd1",
+  "tipo_id": "td1",
+  "conta_id": "c1",
+  "status": "prevista",
+  "paga_em": null,
+  "forma_pagamento": null,
+  "recorrente": false,
+  "parcelamento": null,
+  "excluido": false,
+  "observacoes": "Supermercado"
+}
