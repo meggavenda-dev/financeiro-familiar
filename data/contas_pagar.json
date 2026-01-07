@@ -6,8 +6,9 @@
     "valor": 2000.0,
     "categoria_id": "cd1",
     "conta_id": "c1",
-    "status": "paga",
+    "status": "em_aberto",
     "recorrencia": "mensal",
-    "observacoes": ""
+    "observacoes": "",
+    "paga_em": null
   }
 ]
