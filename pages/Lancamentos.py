@@ -44,13 +44,30 @@ gh = ctx.gh
 # --------------------------------------------------
 data = load_all((ctx.repo_full_name, ctx.branch_name))
 
+
 despesas_map = data["data/despesas.json"]
-despesas = despesas_map.get("content") or []
+despesas = ensure_list(despesas_map.get("content"))
 sha_despesas = despesas_map.get("sha")
+
+def despesas_ativas():
+    return [
+        d for d in despesas
+        if isinstance(d, dict) and not d.get("excluido", False)
+    ]
+
 
 # --------------------------------------------------
 # Helpers
 # --------------------------------------------------
+def ensure_list(obj):
+    if obj is None:
+        return []
+    if isinstance(obj, list):
+        return [x for x in obj if isinstance(x, dict)]
+    if isinstance(obj, dict):
+        return [obj]
+    return []
+
 def fmt_brl(v: float) -> str:
     return f"R$ {v:,.2f}".replace(",", "X").replace(".", ",").replace("X", ".")
 
