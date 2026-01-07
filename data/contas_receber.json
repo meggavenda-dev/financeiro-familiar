@@ -1,1 +1,14 @@
+[
+  {
+    "id": "rc-2026-01-001",
+    "descricao": "Freelancer - Projeto X",
+    "previsto": "2026-01-18",
+    "recebido_em": null,
+    "valor": 800.00,
+    "categoria_id": "cr2",
+    "conta_id": "c1",
+    "status": "em_aberto",
+    "observacoes": ""
+  }
+]
 
