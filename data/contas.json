@@ -1,4 +1,9 @@
 [
-  { "id": "c1", "nome": "Conta Corrente", "tipo": "banco", "moeda": "BRL", "saldo_inicial": 0.0 }
+  {
+    "id": "c1",
+    "nome": "Conta Corrente",
+    "tipo": "banco",
+    "saldo_inicial": 2500.00,
+    "ativa": true
+  }
 ]
-
