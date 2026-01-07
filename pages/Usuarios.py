@@ -13,7 +13,6 @@ if not ctx.connected:
     st.warning("Conecte ao GitHub na página principal.")
     st.stop()
 require_admin(ctx)
-gh = ctx.gh
 
 data = load_all((ctx.repo_full_name, ctx.branch_name))
 usuarios = data["data/usuarios.json"]["content"]
@@ -22,4 +21,4 @@ if not usuarios:
     st.info("Nenhum usuário cadastrado.")
 else:
     for u in usuarios:
-        st.write(f"**{u['nome']}** — Perfil: `{u['perfil']}`")
+        st.write(f"**{u.get('nome','')}** — Perfil: `{u.get('perfil','comum')}` — Ativo: {u.get('ativo', True)}")
