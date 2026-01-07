@@ -20,7 +20,7 @@ with st.sidebar:
     repo_full_name = st.text_input("Repositório (owner/repo)", value=DEFAULT_REPO, placeholder="usuario/repo")
     github_token = st.text_input("GitHub Token (PAT)", value=DEFAULT_TOKEN, type="password")
     branch_name = st.text_input("Branch", value=DEFAULT_BRANCH)
-    st.info("O token precisa de escopo 'repo'.")
+    st.info("O token precisa de escopo 'repo'. Configure em Settings → Developer settings → Personal access tokens.")
     ready = st.button("Conectar ao GitHub")
 
 # Conecta automaticamente se secrets estiverem preenchidos
@@ -59,12 +59,17 @@ DEFAULTS = {
     "data/metas.json": []
 }
 
-# ---------------- Leitura com cache ----------------
+# ---------------- Leitura com cache (PATCH: chave hashável) ----------------
 @st.cache_data(ttl=60, show_spinner=False)
-def load_all(gh_service: GitHubService):
+def load_all(cache_key: tuple[str, str]):
+    """
+    Lê todos os arquivos do GitHub com cache. A chave do cache depende de (repo, branch),
+    evitando UnhashableParamError e garantindo invalidação ao trocar repositório/branch.
+    """
+    # usa 'gh' do escopo externo sem passá-lo como parâmetro (evita objetos não-hasháveis)
     data = {}
     for path, default in DEFAULTS.items():
-        obj, sha = gh_service.ensure_file(path, default)
+        obj, sha = gh.ensure_file(path, default)
         data[path] = {"content": obj, "sha": sha}
     return data
 
@@ -72,7 +77,8 @@ with st.sidebar:
     if st.button("🔄 Atualizar dados (limpar cache)"):
         st.cache_data.clear()
 
-data_map = load_all(gh)
+# PATCH: passa chave hashável (repo, branch) para o cache
+data_map = load_all((repo_full_name, branch_name))
 
 usuarios = data_map["data/usuarios.json"]["content"]
 contas = data_map["data/contas.json"]["content"]
@@ -208,7 +214,6 @@ def to_df_contas(items, tipo: str):
     if not items:
         return pd.DataFrame(columns=["id", "descricao", "valor", "conta_id", "status", "data_ref", "tipo"])
     df = pd.DataFrame(items).copy()
-    # Para pagar usamos 'vencimento', para receber usamos 'previsto'
     col_data = "vencimento" if tipo == "pagar" else "previsto"
     df["data_ref"] = pd.to_datetime(df[col_data], errors="coerce")
     df["tipo"] = tipo
@@ -229,13 +234,11 @@ df_rc = filtrar_contas(df_rc_all, conta_sel, inicio, fim)
 total_pagar_aberto = float(df_p[df_p["status"] == "em_aberto"]["valor"].sum()) if not df_p.empty else 0.0
 total_receber_aberto = float(df_rc[df_rc["status"] == "em_aberto"]["valor"].sum()) if not df_rc.empty else 0.0
 
-# Atrasadas: data_ref < hoje e status em_aberto
 hoje_dt = hoje
 atrasadas = df_p[(df_p["status"] == "em_aberto") & (df_p["data_ref"].dt.date < hoje_dt)] if not df_p.empty else pd.DataFrame()
 qt_atrasadas = len(atrasadas)
 val_atrasadas = float(atrasadas["valor"].sum()) if not atrasadas.empty else 0.0
 
-# Próximas 7 dias
 prox_7 = df_p[(df_p["status"] == "em_aberto") & (df_p["data_ref"].dt.date >= hoje_dt) & (df_p["data_ref"].dt.date <= (hoje_dt + timedelta(days=7)))] if not df_p.empty else pd.DataFrame()
 qt_prox7 = len(prox_7)
 val_prox7 = float(prox_7["valor"].sum()) if not prox_7.empty else 0.0
@@ -244,7 +247,6 @@ c1, c2, c3 = st.columns(3)
 c1.metric("A pagar (em aberto)", fmt_brl(total_pagar_aberto))
 c2.metric("A receber (em aberto)", fmt_brl(total_receber_aberto))
 c3.metric("Atrasadas (qtd / valor)", f"{qt_atrasadas} / {fmt_brl(val_atrasadas)}")
-
 st.caption(f"Próximas 7 dias em aberto: {qt_prox7} • {fmt_brl(val_prox7)}")
 
 # ---------------- Resumo: Metas ----------------
@@ -252,14 +254,13 @@ st.divider()
 st.subheader("🎯 Metas — progresso rápido")
 
 if metas:
-    for m in metas[:3]:  # mostra as top 3
+    for m in metas[:3]:
         nome = m.get("nome", "Meta")
         valor_meta = float(m.get("valor_meta", 0.0))
         valor_acumulado = float(m.get("valor_acumulado", 0.0))
         data_meta = m.get("data_meta")
         progresso = (valor_acumulado / valor_meta) if valor_meta > 0 else 0.0
         progresso = max(0.0, min(progresso, 1.0))
-        # meses restantes
         try:
             meses_rest = max((date.fromisoformat(data_meta) - hoje).days // 30, 1)
         except Exception:
