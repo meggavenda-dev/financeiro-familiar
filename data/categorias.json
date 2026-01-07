@@ -1,1 +1,16 @@
+{
+  "receitas": [
+    { "id": "cr1", "nome": "Salário" },
+    { "id": "cr2", "nome": "Freelancer" },
+    { "id": "cr3", "nome": "Aluguel Recebido" }
+  ],
+  "despesas": [
+    { "id": "cd1", "nome": "Moradia" },
+    { "id": "cd2", "nome": "Alimentação" },
+    { "id": "cd3", "nome": "Transporte" },
+    { "id": "cd4", "nome": "Educação" },
+    { "id": "cd5", "nome": "Lazer" }
+  ]
+}
+
 
