@@ -7,18 +7,19 @@ from datetime import date, timedelta
 from services.app_context import get_context
 from services.data_loader import load_all
 from services.permissions import require_admin
+from services.finance_core import normalizar_tx, atualizar
+from services.status import derivar_status, status_badge
 
-# ------------------------------------------------------------------
-# Configuração da página
-# ------------------------------------------------------------------
+# --------------------------------------------------
+# Página
+# --------------------------------------------------
 st.set_page_config(page_title="Contas a Pagar / Receber", page_icon="📅", layout="wide")
 st.title("📅 Contas a Pagar / Receber")
 
-# ------------------------------------------------------------------
-# Contexto e permissões
-# ------------------------------------------------------------------
+# --------------------------------------------------
+# Contexto
+# --------------------------------------------------
 ctx = get_context()
-
 if not ctx.connected:
     st.warning("Conecte ao GitHub na página principal antes de usar esta página.")
     st.stop()
@@ -26,177 +27,143 @@ if not ctx.connected:
 require_admin(ctx)
 gh = ctx.gh
 
-# ------------------------------------------------------------------
-# Carregamento de dados (com cache central)
-# ------------------------------------------------------------------
+# --------------------------------------------------
+# Dados (unificados)
+# --------------------------------------------------
 data = load_all((ctx.repo_full_name, ctx.branch_name))
-
-pagar_map = data["data/contas_pagar.json"]
-receber_map = data["data/contas_receber.json"]
-
-contas_pagar = pagar_map["content"]
-contas_receber = receber_map["content"]
-
-sha_map = {
-    "data/contas_pagar.json": pagar_map["sha"],
-    "data/contas_receber.json": receber_map["sha"],
-}
-
-# ------------------------------------------------------------------
-# Helpers
-# ------------------------------------------------------------------
-STATUS_OPTS = ["em_aberto", "paga", "atrasada"]
+trans_map = data["data/transacoes.json"]
+transacoes = [normalizar_tx(x) for x in trans_map["content"]]
+sha_trans = trans_map["sha"]
 
 def fmt_brl(v: float) -> str:
     return f"R$ {v:,.2f}".replace(",", "X").replace(".", ",").replace("X", ".")
 
-def parse_date(d):
+def parse_date_safe(d):
     try:
         return pd.to_datetime(d).date()
     except Exception:
         return None
 
-def salvar(path: str, lista: list, mensagem: str):
-    """Salva no GitHub usando SHA correto e retorna novo SHA."""
-    new_sha = gh.put_json(path, lista, mensagem, sha=sha_map[path])
-    sha_map[path] = new_sha
+def salvar(transacoes, mensagem: str):
+    new_sha = gh.put_json("data/transacoes.json", transacoes, mensagem, sha=sha_trans)
     st.cache_data.clear()
     st.rerun()
 
-def badge_status(status: str, data_ref: date):
+def badge_calc(tx):
+    st_calc = derivar_status(tx.get("data_prevista"), tx.get("data_efetiva"))
+    d = parse_date_safe(tx.get("data_prevista"))
     hoje = date.today()
-    if status == "paga":
+    if st_calc == "paga":
         return "✅ Paga"
-    if data_ref and data_ref < hoje:
-        return "🔴 Atrasada"
-    if data_ref and data_ref <= (hoje + timedelta(days=7)):
+    if d and d < hoje:
+        return "🔴 Vencida"
+    if d and d <= (hoje + timedelta(days=7)):
         return "🟡 Próxima"
     return "🟢 Em aberto"
 
-# ------------------------------------------------------------------
-# Aba de navegação
-# ------------------------------------------------------------------
 tab_pagar, tab_receber = st.tabs(["💸 A Pagar", "📥 A Receber"])
 
-# ------------------------------------------------------------------
-# A PAGAR
-# ------------------------------------------------------------------
+# -------------------- A PAGAR (despesa) --------------------
 with tab_pagar:
     st.subheader("💸 Contas a Pagar")
-
-    if not contas_pagar:
+    pagar_items = [x for x in transacoes if x.get("tipo") == "despesa" and not x.get("excluido")]
+    if not pagar_items:
         st.info("Nenhuma conta a pagar cadastrada.")
     else:
-        for c in contas_pagar:
-            venc = parse_date(c.get("vencimento"))
-            status_atual = c.get("status", "em_aberto")
-
-            col1, col2, col3, col4, col5 = st.columns([4, 2, 3, 2, 2])
-
+        for c in pagar_items:
+            prev = parse_date_safe(c.get("data_prevista"))
+            col1, col2, col3, col4, col5 = st.columns([4,2,3,2,2])
             col1.write(f"**{c.get('descricao', '—')}**")
             col2.write(fmt_brl(float(c.get("valor", 0.0))))
-            col3.write(f"Vencimento: {venc.strftime('%d/%m/%Y') if venc else '—'}")
-            col4.write(badge_status(status_atual, venc))
+            col3.write(f"Previsto: {prev.strftime('%d/%m/%Y') if prev else '—'}")
+            col4.write(badge_calc(c))
 
+            status_atual = derivar_status(c.get("data_prevista"), c.get("data_efetiva"))
             novo_status = col5.selectbox(
                 "Status",
-                STATUS_OPTS,
-                index=STATUS_OPTS.index(status_atual),
+                ["planejada","vencendo","vencida","paga"],
+                index=["planejada","vencendo","vencida","paga"].index(status_atual),
                 key=f"pagar-{c['id']}"
             )
 
+            # aplicar mudança (paga -> set data_efetiva; outros -> limpar)
             if novo_status != status_atual:
-                c["status"] = novo_status
                 if novo_status == "paga":
-                    c["paga_em"] = date.today().isoformat()
+                    c["data_efetiva"] = date.today().isoformat()
                 else:
-                    c["paga_em"] = None
+                    c["data_efetiva"] = None
+                atualizar(transacoes, c)
+                salvar(transacoes, f"Update pagar: {c.get('descricao')} -> {novo_status}")
 
-                salvar(
-                    "data/contas_pagar.json",
-                    contas_pagar,
-                    f"Update conta a pagar: {c.get('descricao')} -> {novo_status}"
-                )
-
-# ------------------------------------------------------------------
-# A RECEBER
-# ------------------------------------------------------------------
+# -------------------- A RECEBER (receita) --------------------
 with tab_receber:
     st.subheader("📥 Contas a Receber")
-
-    if not contas_receber:
+    receber_items = [x for x in transacoes if x.get("tipo") == "receita" and not x.get("excluido")]
+    if not receber_items:
         st.info("Nenhuma conta a receber cadastrada.")
     else:
-        for c in contas_receber:
-            previsto = parse_date(c.get("previsto"))
-            status_atual = c.get("status", "em_aberto")
-
-            col1, col2, col3, col4, col5 = st.columns([4, 2, 3, 2, 2])
-
+        for c in receber_items:
+            prev = parse_date_safe(c.get("data_prevista"))
+            col1, col2, col3, col4, col5 = st.columns([4,2,3,2,2])
             col1.write(f"**{c.get('descricao', '—')}**")
             col2.write(fmt_brl(float(c.get("valor", 0.0))))
-            col3.write(f"Previsto: {previsto.strftime('%d/%m/%Y') if previsto else '—'}")
-            col4.write(badge_status(status_atual, previsto))
+            col3.write(f"Previsto: {prev.strftime('%d/%m/%Y') if prev else '—'}")
+            col4.write(badge_calc(c))
 
+            status_atual = derivar_status(c.get("data_prevista"), c.get("data_efetiva"))
             novo_status = col5.selectbox(
                 "Status",
-                STATUS_OPTS,
-                index=STATUS_OPTS.index(status_atual),
+                ["planejada","vencendo","vencida","paga"],
+                index=["planejada","vencendo","vencida","paga"].index(status_atual),
                 key=f"receber-{c['id']}"
             )
 
             if novo_status != status_atual:
-                c["status"] = novo_status
                 if novo_status == "paga":
-                    c["recebido_em"] = date.today().isoformat()
+                    c["data_efetiva"] = date.today().isoformat()
                 else:
-                    c["recebido_em"] = None
+                    c["data_efetiva"] = None
+                atualizar(transacoes, c)
+                salvar(transacoes, f"Update receber: {c.get('descricao')} -> {novo_status}")
 
-                salvar(
-                    "data/contas_receber.json",
-                    contas_receber,
-                    f"Update conta a receber: {c.get('descricao')} -> {novo_status}"
-                )
-
-# ------------------------------------------------------------------
-# RESUMO DE PLANEJAMENTO E FLUXO FUTURO
-# ------------------------------------------------------------------
+# -------------------- Resumo futuro --------------------
 st.divider()
-st.subheader("📊 Planejamento & Fluxo Futuro")
+st.subheader("📊 Planejamento & Fluxo Futuro (em aberto)")
 
 hoje = date.today()
 
-def resumo_fluxo(lista, campo_data):
+def resumo_fluxo(lista, tipo):
     total_aberto = 0.0
-    total_atrasado = 0.0
+    total_vencido = 0.0
     total_prox7 = 0.0
-
     for c in lista:
-        if c.get("status") != "em_aberto":
+        if c.get("tipo") != tipo:
+            continue
+        stc = derivar_status(c.get("data_prevista"), c.get("data_efetiva"))
+        if stc == "paga":
             continue
         valor = float(c.get("valor", 0.0))
-        d = parse_date(c.get(campo_data))
+        d = parse_date_safe(c.get("data_prevista"))
         if not d:
             continue
         if d < hoje:
-            total_atrasado += valor
+            total_vencido += valor
         elif d <= (hoje + timedelta(days=7)):
             total_prox7 += valor
         total_aberto += valor
+    return total_aberto, total_vencido, total_prox7
 
-    return total_aberto, total_atrasado, total_prox7
-
-p_aberto, p_atraso, p_prox7 = resumo_fluxo(contas_pagar, "vencimento")
-r_aberto, r_atraso, r_prox7 = resumo_fluxo(contas_receber, "previsto")
+p_aberto, p_vencido, p_prox7 = resumo_fluxo(transacoes, "despesa")
+r_aberto, r_vencido, r_prox7 = resumo_fluxo(transacoes, "receita")
 
 c1, c2, c3 = st.columns(3)
 c1.metric("💸 A Pagar (em aberto)", fmt_brl(p_aberto))
-c2.metric("🔴 Atrasadas (pagar)", fmt_brl(p_atraso))
+c2.metric("🔴 Vencidas (pagar)", fmt_brl(p_vencido))
 c3.metric("🟡 Próx. 7 dias (pagar)", fmt_brl(p_prox7))
 
 c4, c5, c6 = st.columns(3)
 c4.metric("📥 A Receber (em aberto)", fmt_brl(r_aberto))
-c5.metric("🔴 Atrasadas (receber)", fmt_brl(r_atraso))
+c5.metric("🔴 Vencidas (receber)", fmt_brl(r_vencido))
 c6.metric("🟡 Próx. 7 dias (receber)", fmt_brl(r_prox7))
 
 st.success("✅ Módulo de Contas integrado ao planejamento financeiro.")
