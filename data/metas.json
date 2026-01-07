@@ -1,10 +1,11 @@
-[
-  {
-    "id": "m-1",
-    "nome": "Reserva de Emergência",
-    "valor_meta": 15000,
-    "valor_acumulado": 3200,
-    "data_meta": "2026-12-31",
-    "observacoes": ""
-  }
-]
+{
+  "id": "m1",
+  "nome": "Reserva de Emergência",
+  "valor_meta": 30000,
+  "valor_atual": 5200,
+  "regra": {
+    "tipo": "percentual_receita",
+    "percentual": 0.10
+  },
+  "ativa": true
+}
