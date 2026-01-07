@@ -1,13 +1,10 @@
 [
   {
-    "id": "m-viagem-2026",
-    "nome": "Viagem Julho/2026",
-    "valor_meta": 10000.00,
-    "data_meta": "2026-07-01",
-    "conta_destino": "c1",
-    "valor_acumulado": 1500.00,
-    "observacoes": "Guardar R$ 1.5k/mês"
+    "id": "m-1",
+    "nome": "Reserva de Emergência",
+    "valor_meta": 15000,
+    "valor_acumulado": 3200,
+    "data_meta": "2026-12-31",
+    "observacoes": ""
   }
 ]
-
-
