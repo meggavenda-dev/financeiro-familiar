@@ -115,7 +115,13 @@ def to_df_movs(items, tipo: str):
 def filtrar_por_periodo_conta(df: pd.DataFrame, conta_id: str, dt_inicio: date, dt_fim: date):
     if df.empty:
         return df
-    m = (df["conta_id"] == conta_id) & (df["data"].dt.date >= dt_inicio) & (df["data"].dt.date <= dt_fim)
+   
+    m = (
+        (df["conta_id"] == conta_id)
+        & (df["data"].dt.date >= dt_inicio)
+        & (df["data"].dt.date <= dt_fim)
+    )
+
     return df.loc[m].copy()
 
 def nome_categoria(cat_id: str, tipo: str):
