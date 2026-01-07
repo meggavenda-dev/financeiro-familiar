@@ -10,7 +10,6 @@ from services.status import derivar_status
 def add_months(d: date, months: int) -> date:
     year = d.year + (d.month - 1 + months) // 12
     month = (d.month - 1 + months) % 12 + 1
-    # usa último dia do mês quando necessário
     last = calendar.monthrange(year, month)[1]
     day = min(d.day, last)
     return date(year, month, day)
@@ -45,7 +44,8 @@ def excluir(lista: list, item_id: str) -> bool:
 # ---------- Baixar / Estornar ----------
 def baixar(tx: dict, forma_pagamento: str | None = None):
     tx["data_efetiva"] = datetime.now().date().isoformat()
-    tx["forma_pagamento"] = forma_pagamento
+    if forma_pagamento:
+        tx["forma_pagamento"] = forma_pagamento
 
 def estornar(tx: dict):
     tx["data_efetiva"] = None
@@ -93,8 +93,16 @@ def saldo_atual(conta: dict, transacoes: list) -> float:
     return round(saldo, 2)
 
 # ---------- Helpers ----------
-def normalizar_tx(d: dict) -> dict:
+def normalizar_tx(d):
+    """
+    Normaliza transação de forma segura.
+    Retorna None para itens inválidos (não-dict).
+    """
+    if not isinstance(d, dict):
+        return None
+
     d = d.copy()
+    d.setdefault("id", "")
     d.setdefault("tipo", "despesa")
     d.setdefault("descricao", "")
     d.setdefault("valor", 0.0)
@@ -105,11 +113,12 @@ def normalizar_tx(d: dict) -> dict:
     d.setdefault("excluido", False)
     d.setdefault("parcelamento", None)
     d.setdefault("recorrente", False)
+
     d["status"] = derivar_status(d.get("data_prevista"), d.get("data_efetiva"))
     return d
 
 def ativos(lista: list) -> list:
-    return [x for x in lista if not x.get("excluido")]
+    return [x for x in lista if isinstance(x, dict) and not x.get("excluido")]
 
 def filtrar_periodo(lista: list, ini: date, fim: date) -> list:
     out = []
@@ -121,4 +130,3 @@ def filtrar_periodo(lista: list, ini: date, fim: date) -> list:
         except Exception:
             pass
     return out
-
