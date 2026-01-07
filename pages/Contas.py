@@ -5,15 +5,17 @@ from services.app_context import get_context
 from services.data_loader import load_all
 from services.permissions import require_admin
 
-st.set_page_config("Contas", "📅", layout="wide")
+st.set_page_config(page_title="Contas", page_icon="📅", layout="wide")
 st.title("📅 Contas a Pagar / Receber")
 
 ctx = get_context()
+if not ctx.connected:
+    st.warning("Conecte ao GitHub na página principal.")
+    st.stop()
 require_admin(ctx)
-gh = ctx["gh"]
+gh = ctx.gh
 
-data = load_all((st.secrets["repo_full_name"], st.secrets.get("branch_name", "main")))
-
+data = load_all((ctx.repo_full_name, ctx.branch_name))
 pagar = data["data/contas_pagar.json"]["content"]
 receber = data["data/contas_receber.json"]["content"]
 
@@ -41,3 +43,4 @@ for label, lista, path in [
             gh.put_json(path, lista, f"Update status: {c['descricao']} -> {novo}")
             st.cache_data.clear()
             st.rerun()
+
