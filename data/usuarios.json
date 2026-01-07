@@ -1,3 +1,10 @@
 [
-  { "id": "u1", "nome": "Administrador", "perfil": "admin" }
+  {
+    "id": "u1",
+    "nome": "Administrador",
+    "email": "admin@email.com",
+    "perfil": "admin",
+    "ativo": true,
+    "criado_em": "2026-01-01T10:00:00"
+  }
 ]
