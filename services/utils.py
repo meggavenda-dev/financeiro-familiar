@@ -22,3 +22,11 @@ def clear_cache_and_rerun():
     """Limpa cache de dados e reroda a app/página."""
     st.cache_data.clear()
     st.rerun()
+
+def data_ref_row(r) -> pd.Timestamp.date:
+    """
+    Helper: derivar data de referência por linha:
+    - Prioriza data efetiva, se existir
+    - Senão, usa data prevista
+    """
+    return pd.to_datetime(r.get("data_efetiva") or r.get("data_prevista"), errors="coerce").date()
