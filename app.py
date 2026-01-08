@@ -3,6 +3,7 @@
 import sys
 from pathlib import Path
 from datetime import date
+import calendar
 
 import streamlit as st
 import pandas as pd
@@ -107,7 +108,6 @@ def _parse_date_any(series: pd.Series) -> pd.Series:
     Retorna uma Series de objetos date (ou NaT quando não possível).
     """
     s1 = pd.to_datetime(series, errors="coerce")
-    # Segunda passada apenas onde falhou
     mask = s1.isna()
     if mask.any():
         s2 = pd.to_datetime(series[mask], errors="coerce", dayfirst=True)
@@ -161,24 +161,31 @@ transacoes = [
 contas = data["data/contas.json"]["content"]
 
 # -------------------------------------------------
-# KPIs do mês (CAIXA REAL)
+# Datas de trabalho
 # -------------------------------------------------
 hoje = date.today()
 inicio = date(hoje.year, hoje.month, 1)
+fim_mes = date(hoje.year, hoje.month, calendar.monthrange(hoje.year, hoje.month)[1])
 
+# -------------------------------------------------
+# DataFrame normalizado
+# -------------------------------------------------
 df = _normalizar_df(transacoes)
 
 rec_real = des_real = rec_prev = des_prev = 0.0
 
 if not df.empty:
-    # Período corrente
-    periodo = df[df["data_ref"].between(inicio, hoje)]
+    # Período corrente (até hoje) para realizados
+    periodo_real = df[df["data_ref"].between(inicio, hoje)]
+    realizadas = periodo_real[periodo_real["data_efetiva"].notna()]
 
-    realizadas = periodo[periodo["data_efetiva"].notna()]
-    previstas  = periodo[periodo["data_efetiva"].isna()]
+    # Período do mês inteiro para previstas (planejamento)
+    periodo_prev = df[df["data_ref"].between(inicio, fim_mes)]
+    previstas = periodo_prev[periodo_prev["data_efetiva"].isna()]
 
     rec_real = realizadas.query("tipo == 'receita'")["valor"].sum()
     des_real = realizadas.query("tipo == 'despesa'")["valor"].sum()
+
     rec_prev = previstas.query("tipo == 'receita'")["valor"].sum()
     des_prev = previstas.query("tipo == 'despesa'")["valor"].sum()
 
@@ -219,7 +226,7 @@ kpis_realizado = [
 render_kpis(kpis_realizado, desktop_cols=4, mobile_cols=1)
 
 # -------------------------------------------------
-# KPIs — Previsto (planejamento)
+# KPIs — Planejamento (mês inteiro)
 # -------------------------------------------------
 section("📅 Planejamento")
 
@@ -242,12 +249,13 @@ incluir_previstas = st.checkbox("Incluir previstas (projeção)", value=False)
 if not df.empty:
     base = df.copy()
 
-    # Se não incluir previstas, mantenha apenas efetivadas
+    # Se não incluir previstas, mantenha apenas efetivadas e até hoje
     if not incluir_previstas:
         base = base[base["data_efetiva"].notna()]
-
-    # Período corrente via data_ref
-    base = base[base["data_ref"].between(inicio, hoje)]
+        base = base[base["data_ref"].between(inicio, hoje)]
+    else:
+        # Com previstas, considere o mês inteiro
+        base = base[base["data_ref"].between(inicio, fim_mes)]
 
     if base.empty:
         st.info("Sem dados suficientes para gerar o gráfico.")
@@ -274,7 +282,7 @@ else:
 st.divider()
 
 # -------------------------------------------------
-# Despesas por categoria
+# Despesas por categoria (mês inteiro)
 # -------------------------------------------------
 section("🧩 Despesas por categoria (mês)", "Inclui realizadas e previstas")
 
@@ -284,7 +292,7 @@ if not df.empty:
 
     despesas_mes = df[
         (df["tipo"] == "despesa") &
-        (df["data_ref"].between(inicio, hoje))
+        (df["data_ref"].between(inicio, fim_mes))
     ].copy()
 
     if despesas_mes.empty:
@@ -314,11 +322,13 @@ else:
 # 🔍 Diagnóstico (opcional)
 # -------------------------------------------------
 with st.expander("🔍 Diagnóstico (use para conferir filtros)", expanded=False):
-    st.write("Registros totais:", len(df))
+    st.write("Registros totais em DF normalizado:", len(df))
     if not df.empty:
-        st.write("Receitas (mês):", int(((df["tipo"] == "receita") & (df["data_ref"].between(inicio, hoje))).sum()))
-        st.write("Despesas (mês):", int(((df["tipo"] == "despesa") & (df["data_ref"].between(inicio, hoje))).sum()))
+        st.write("Receitas realizadas (até hoje):", int(((df["tipo"] == "receita") & (df["data_efetiva"].notna()) & (df["data_ref"].between(inicio, hoje))).sum()))
+        st.write("Despesas realizadas (até hoje):", int(((df["tipo"] == "despesa") & (df["data_efetiva"].notna()) & (df["data_ref"].between(inicio, hoje))).sum()))
+        st.write("Receitas previstas (mês inteiro):", int(((df["tipo"] == "receita") & (df["data_efetiva"].isna()) & (df["data_ref"].between(inicio, fim_mes))).sum()))
+        st.write("Despesas previstas (mês inteiro):", int(((df["tipo"] == "despesa") & (df["data_efetiva"].isna()) & (df["data_ref"].between(inicio, fim_mes))).sum()))
 
-        st.write("Amostra de despesas (mês):")
-        amostra = df[(df["tipo"] == "despesa") & (df["data_ref"].between(inicio, hoje))].head(10)
+        st.write("Amostra de despesas (mês inteiro):")
+        amostra = df[(df["tipo"] == "despesa") & (df["data_ref"].between(inicio, fim_mes))].head(10)
         st.dataframe(amostra[["descricao", "valor", "data_prevista", "data_efetiva", "data_ref", "categoria_id"]])
