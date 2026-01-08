@@ -209,3 +209,60 @@ def load_all(cache_key: tuple):
     data["data/metas.json"] = {"content": obj_m, "sha": sha_m}
 
     return data
+
+
+# ---------- Funções utilitárias de categorias ----------
+
+def listar_categorias(gh) -> tuple[list, str | None]:
+    """
+    Retorna (categorias, sha) garantindo existência do arquivo.
+    """
+    cats, sha = gh.ensure_file("data/categorias.json", DEFAULTS["data/categorias.json"])
+    # Sanitiza: apenas dicts
+    cats = [c for c in cats if isinstance(c, dict)]
+    return cats, sha
+
+
+def adicionar_categoria(gh, nome: str, tipo: str = "despesa") -> dict:
+    """
+    Adiciona uma nova categoria ao data/categorias.json.
+    """
+    categorias, sha = listar_categorias(gh)
+    nova = {"id": novo_id("cat"), "nome": (nome or "").strip(), "tipo": tipo}
+    categorias.append(nova)
+    new_sha = gh.put_json("data/categorias.json", categorias, f"Nova categoria: {nova['nome']}", sha=sha)
+    st.cache_data.clear()
+    return nova
+
+
+def atualizar_categoria(gh, categoria_id: str, nome: str | None = None, tipo: str | None = None) -> bool:
+    """
+    Atualiza campos de uma categoria existente.
+    """
+    categorias, sha = listar_categorias(gh)
+    ok = False
+    for c in categorias:
+        if c.get("id") == categoria_id:
+            if nome is not None:
+                c["nome"] = (nome or "").strip()
+            if tipo is not None:
+                c["tipo"] = tipo
+            ok = True
+            break
+    if ok:
+        gh.put_json("data/categorias.json", categorias, f"Atualiza categoria: {categoria_id}", sha=sha)
+        st.cache_data.clear()
+    return ok
+
+
+def excluir_categoria(gh, categoria_id: str) -> bool:
+    """
+    Remove categoria por ID. (Hard delete; se preferir, marque como 'excluido')
+    """
+    categorias, sha = listar_categorias(gh)
+    novo = [c for c in categorias if c.get("id") != categoria_id]
+    if len(novo) == len(categorias):
+        return False
+    gh.put_json("data/categorias.json", novo, f"Remove categoria: {categoria_id}", sha=sha)
+    st.cache_data.clear()
+    return True
