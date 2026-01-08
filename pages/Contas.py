@@ -9,7 +9,7 @@ from services.data_loader import load_all
 from services.permissions import require_admin
 from services.finance_core import normalizar_tx, atualizar
 from services.status import derivar_status
-from services.utils import fmt_brl, parse_date_safe, clear_cache_and_rerun
+from services.utils import fmt_brl, parse_date_safe, clear_cache_and_rerun, fmt_date_br
 
 # --------------------------------------------------
 # Página
@@ -80,10 +80,11 @@ with tab_pagar:
         for c in pagar_items:
             prev = parse_date_safe(c.get("data_prevista"))
             status_atual = derivar_status(c.get("data_prevista"), c.get("data_efetiva"))
-            col1, col2, col3, col4, col5 = st.columns([4,2,3,2,3])
+
+            col1, col2, col3, col4, col5 = st.columns([4, 2, 3, 2, 3])
             col1.write(f"**{c.get('descricao', '—')}**")
             col2.write(fmt_brl(float(c.get("valor", 0.0))))
-            col3.write(f"Previsto: {prev.strftime('%d/%m/%Y') if prev else '—'}")
+            col3.write(f"Previsto: {fmt_date_br(prev)}")
             col4.write(badge_calc(c))
 
             pagar_btn = col5.button("Marcar como paga", key=f"pagar-{c['id']}", disabled=(status_atual == "paga"))
@@ -122,10 +123,11 @@ with tab_receber:
         for c in receber_items:
             prev = parse_date_safe(c.get("data_prevista"))
             status_atual = derivar_status(c.get("data_prevista"), c.get("data_efetiva"))
-            col1, col2, col3, col4, col5 = st.columns([4,2,3,2,3])
+
+            col1, col2, col3, col4, col5 = st.columns([4, 2, 3, 2, 3])
             col1.write(f"**{c.get('descricao', '—')}**")
             col2.write(fmt_brl(float(c.get("valor", 0.0))))
-            col3.write(f"Previsto: {prev.strftime('%d/%m/%Y') if prev else '—'}")
+            col3.write(f"Previsto: {fmt_date_br(prev)}")
             col4.write(badge_calc(c))
 
             receber_btn = col5.button("Marcar como recebida", key=f"receber-{c['id']}", disabled=(status_atual == "paga"))
@@ -174,12 +176,12 @@ r_aberto, r_vencido, r_prox7 = resumo_fluxo(transacoes, "receita")
 
 c1, c2, c3 = st.columns(3)
 c1.metric("💸 A Pagar (em aberto)", fmt_brl(p_aberto))
-c2.metric("🔴 Vencidas (pagar)", fmt_brl(p_vencido))
+c2.metric("🔴 Vencidas (pagar)", fmt_brl(p_vencido), help="Vencidas até hoje")
 c3.metric("🟡 Próx. 7 dias (pagar)", fmt_brl(p_prox7))
 
 c4, c5, c6 = st.columns(3)
 c4.metric("📥 A Receber (em aberto)", fmt_brl(r_aberto))
-c5.metric("🔴 Vencidas (receber)", fmt_brl(r_vencido))
+c5.metric("🔴 Vencidas (receber)", fmt_brl(r_vencido), help="Vencidas até hoje")
 c6.metric("🟡 Próx. 7 dias (receber)", fmt_brl(r_prox7))
 
 st.success("✅ Módulo de Contas mostra apenas itens em aberto por padrão. Use os checkboxes para auditoria de pagos/recebidos.")
