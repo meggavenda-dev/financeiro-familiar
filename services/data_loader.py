@@ -5,7 +5,6 @@ from services.app_context import get_context
 from services.finance_core import novo_id
 
 # Defaults para todos os arquivos usados pelo app.
-# Inclui arquivos "legados" para permitir migração automática.
 DEFAULTS = {
     "data/usuarios.json": [
         {"id": "u1", "nome": "Administrador", "perfil": "admin", "ativo": True}
@@ -43,21 +42,18 @@ DEFAULTS = {
     "data/orcamentos.json": [],
 }
 
-
 def _migrar_legado(gh, data_dict: dict) -> None:
     """
-    Migra seus arquivos antigos (despesas/receitas/contas_pagar/contas_receber)
+    Migra arquivos antigos (despesas/receitas/contas_pagar/contas_receber)
     para o modelo unificado em data/transacoes.json. Executa uma vez
     somente se transacoes.json estiver vazio.
     """
     transacoes = data_dict["data/transacoes.json"]["content"]
     trans_sha = data_dict["data/transacoes.json"]["sha"]
 
-    # Se já há transações, não migrar
     if isinstance(transacoes, list) and len(transacoes) > 0:
         return
 
-    # Coleta conteúdo legado
     despesas = data_dict.get("data/despesas.json", {"content": []})["content"]
     receitas = data_dict.get("data/receitas.json", {"content": []})["content"]
     pagar    = data_dict.get("data/contas_pagar.json", {"content": []})["content"]
@@ -65,7 +61,7 @@ def _migrar_legado(gh, data_dict: dict) -> None:
 
     txs = []
 
-    # Despesas antigas -> transações tipo "despesa"
+    # Despesas -> transações "despesa"
     if isinstance(despesas, list):
         for d in despesas:
             if not isinstance(d, dict):
@@ -84,7 +80,7 @@ def _migrar_legado(gh, data_dict: dict) -> None:
                 "recorrente": bool(d.get("recorrente", False)),
             })
 
-    # Receitas antigas -> transações tipo "receita"
+    # Receitas -> transações "receita"
     if isinstance(receitas, list):
         for r in receitas:
             if not isinstance(r, dict):
@@ -101,7 +97,7 @@ def _migrar_legado(gh, data_dict: dict) -> None:
                 "excluido": bool(r.get("excluido", False)),
             })
 
-    # Contas a pagar -> transações tipo "despesa" futuras
+    # Contas a pagar -> transações "despesa"
     if isinstance(pagar, list):
         for c in pagar:
             if not isinstance(c, dict):
@@ -118,7 +114,7 @@ def _migrar_legado(gh, data_dict: dict) -> None:
                 "excluido": False,
             })
 
-    # Contas a receber -> transações tipo "receita" futuras
+    # Contas a receber -> transações "receita"
     if isinstance(receber, list):
         for c in receber:
             if not isinstance(c, dict):
@@ -135,7 +131,6 @@ def _migrar_legado(gh, data_dict: dict) -> None:
                 "excluido": False,
             })
 
-    # Se geramos transações, comitar
     if txs:
         new_sha = gh.put_json(
             "data/transacoes.json",
@@ -144,17 +139,14 @@ def _migrar_legado(gh, data_dict: dict) -> None:
             sha=trans_sha
         )
         data_dict["data/transacoes.json"] = {"content": txs, "sha": new_sha}
-        # Limpa cache para refletir estado novo
         st.cache_data.clear()
-
 
 def _sanitizar_lista_de_dicts(gh, path: str, obj, sha: str, commit_msg: str) -> tuple[list, str]:
     """
-    Sanitiza um conteúdo de arquivo JSON que deve ser uma lista de dicts.
+    Sanitiza conteúdo que deve ser lista de dicts.
     - Se 'obj' não for lista, transforma em lista vazia.
-    - Remove qualquer item que não seja dict.
+    - Remove itens não-dict.
     - Se houve alteração, comita e retorna (lista_sanitizada, novo_sha).
-    - Caso contrário, retorna (obj_original, sha_original).
     """
     if not isinstance(obj, list):
         obj = []
@@ -165,16 +157,12 @@ def _sanitizar_lista_de_dicts(gh, path: str, obj, sha: str, commit_msg: str) -> 
         return clean, new_sha
     return obj, sha
 
-
 def _garantir_codigos_categorias(gh, categorias: list[dict], sha: str) -> tuple[list[dict], str]:
     """
     Garante que TODAS as categorias tenham 'codigo' numérico (int) e único.
-    - Se faltar 'codigo' ou não for int, atribui um próximo código disponível (incremental).
-    - Persiste alterações caso necessário.
-    Retorna (categorias_atualizadas, sha_atualizado).
+    Se faltar, atribui próximo incremental e persiste.
     """
     changed = False
-    # Coleta códigos válidos existentes
     existing_codes = [c.get("codigo") for c in categorias if isinstance(c.get("codigo"), int)]
     next_code = (max(existing_codes) + 1) if existing_codes else 1
     seen = set(existing_codes)
@@ -182,7 +170,6 @@ def _garantir_codigos_categorias(gh, categorias: list[dict], sha: str) -> tuple[
     for c in categorias:
         cod = c.get("codigo")
         if not isinstance(cod, int):
-            # atribuir novo código sequencial
             while next_code in seen:
                 next_code += 1
             c["codigo"] = next_code
@@ -196,18 +183,41 @@ def _garantir_codigos_categorias(gh, categorias: list[dict], sha: str) -> tuple[
         return categorias, new_sha
     return categorias, sha
 
+def _garantir_codigos_transacoes(gh, transacoes: list[dict], sha: str) -> tuple[list[dict], str]:
+    """
+    Garante que TODAS as transações tenham 'codigo' numérico (int) e único.
+    Se faltar, atribui próximo incremental e persiste.
+    """
+    changed = False
+    existing = [t.get("codigo") for t in transacoes if isinstance(t.get("codigo"), int)]
+    next_code = (max(existing) + 1) if existing else 1
+    seen = set(existing)
+
+    for t in transacoes:
+        cod = t.get("codigo")
+        if not isinstance(cod, int):
+            while next_code in seen:
+                next_code += 1
+            t["codigo"] = next_code
+            seen.add(next_code)
+            next_code += 1
+            changed = True
+
+    if changed:
+        new_sha = gh.put_json("data/transacoes.json", transacoes, "Normaliza transacoes: adiciona 'codigo' numérico", sha=sha)
+        st.cache_data.clear()
+        return transacoes, new_sha
+    return transacoes, sha
 
 @st.cache_data(ttl=60, show_spinner=False)
 def load_all(cache_key: tuple):
     """
-    Lê todos os arquivos via GitHubService presente no contexto.
-    Usa (repo_full_name, branch_name) como chave do cache, evitando erro de hash.
-    - Executa migração automática do legado para transações unificadas.
-    - Sanitiza transacoes.json e metas.json (remove itens inválidos que não sejam dict).
-    - Garante 'codigo' numérico único em categorias.
+    Lê todos os arquivos via GitHubService (no contexto).
+    - Migra legado -> transacoes.json (se vazio).
+    - Sanitiza transacoes.json e metas.json (remove itens inválidos).
+    - Garante 'codigo' numérico em categorias e transações.
     """
     ctx = get_context()
-
     if not ctx.get("connected"):
         raise RuntimeError("Não conectado ao GitHub. Informe repositório e token na barra lateral.")
 
@@ -215,7 +225,7 @@ def load_all(cache_key: tuple):
     if gh is None:
         raise RuntimeError("GitHubService não está inicializado.")
 
-    # Carrega todos os arquivos assegurando existência (create-if-missing)
+    # Carrega todos os arquivos (create-if-missing)
     data = {}
     for path, default in DEFAULTS.items():
         obj, sha = gh.ensure_file(path, default)
@@ -224,15 +234,16 @@ def load_all(cache_key: tuple):
     # MIGRA LEGADO -> transacoes.json (se estiver vazio)
     _migrar_legado(gh, data)
 
-    # RECARREGA transacoes.json (após migração) e sanitiza
+    # Sanitiza e garante códigos em transacoes.json
     obj, sha = gh.ensure_file("data/transacoes.json", [])
     obj, sha = _sanitizar_lista_de_dicts(
         gh, "data/transacoes.json", obj, sha,
         commit_msg="Sanitiza transacoes.json (remove itens inválidos)"
     )
+    obj, sha = _garantir_codigos_transacoes(gh, obj, sha)
     data["data/transacoes.json"] = {"content": obj, "sha": sha}
 
-    # Sanitiza metas.json também (evita AttributeError em páginas)
+    # Sanitiza metas.json
     obj_m, sha_m = gh.ensure_file("data/metas.json", [])
     obj_m, sha_m = _sanitizar_lista_de_dicts(
         gh, "data/metas.json", obj_m, sha_m,
@@ -240,7 +251,7 @@ def load_all(cache_key: tuple):
     )
     data["data/metas.json"] = {"content": obj_m, "sha": sha_m}
 
-    # Garante 'codigo' numérico em categorias
+    # Garante códigos em categorias
     cats, cats_sha = gh.ensure_file("data/categorias.json", DEFAULTS["data/categorias.json"])
     cats = [c for c in cats if isinstance(c, dict)]
     cats, cats_sha = _garantir_codigos_categorias(gh, cats, cats_sha)
@@ -248,27 +259,21 @@ def load_all(cache_key: tuple):
 
     return data
 
-
 # ---------- Funções utilitárias de categorias ----------
 def listar_categorias(gh) -> tuple[list, str | None]:
     """Retorna (categorias, sha) garantindo existência do arquivo."""
     cats, sha = gh.ensure_file("data/categorias.json", DEFAULTS["data/categorias.json"])
-    # Sanitiza: apenas dicts
     cats = [c for c in cats if isinstance(c, dict)]
     return cats, sha
-
 
 def _proximo_codigo(categorias: list[dict]) -> int:
     """Retorna o próximo 'codigo' disponível (int) com base nas categorias existentes."""
     cods = [c.get("codigo") for c in categorias if isinstance(c.get("codigo"), int)]
     return (max(cods) + 1) if cods else 1
 
-
 def adicionar_categoria(gh, nome: str, tipo: str = "despesa", codigo: int | None = None) -> dict:
-    """Adiciona uma nova categoria ao data/categorias.json (com 'codigo' numérico)."""
+    """Adiciona nova categoria (com 'codigo' numérico) ao data/categorias.json."""
     categorias, sha = listar_categorias(gh)
-
-    # Determina o código (único)
     if codigo is None:
         codigo = _proximo_codigo(categorias)
     else:
@@ -282,17 +287,13 @@ def adicionar_categoria(gh, nome: str, tipo: str = "despesa", codigo: int | None
     st.cache_data.clear()
     return nova
 
-
 def atualizar_categoria(gh, categoria_id: str, nome: str | None = None, tipo: str | None = None, codigo: int | None = None) -> bool:
     """Atualiza campos de uma categoria existente (inclui 'codigo' numérico)."""
     categorias, sha = listar_categorias(gh)
-
-    # Valida 'codigo' (se informado) para evitar duplicidade
     if codigo is not None:
         codigo = int(codigo)
         if any(c.get("id") != categoria_id and c.get("codigo") == codigo for c in categorias):
-            # conflito de código
-            return False
+            return False  # conflito de código
 
     ok = False
     for c in categorias:
@@ -311,9 +312,8 @@ def atualizar_categoria(gh, categoria_id: str, nome: str | None = None, tipo: st
         st.cache_data.clear()
     return ok
 
-
 def excluir_categoria(gh, categoria_id: str) -> bool:
-    """Remove categoria por ID. (Hard delete; se preferir, marque como 'excluido')"""
+    """Remove categoria por ID."""
     categorias, sha = listar_categorias(gh)
     novo = [c for c in categorias if c.get("id") != categoria_id]
     if len(novo) == len(categorias):
