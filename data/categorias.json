@@ -68,5 +68,10 @@
     "id": "cat-20260108021912-dc5e",
     "nome": "Gasolina",
     "tipo": "despesa"
+  },
+  {
+    "id": "cat-20260108022011-c982",
+    "nome": "Conta de Luz",
+    "tipo": "despesa"
   }
 ]
