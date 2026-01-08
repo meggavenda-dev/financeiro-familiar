@@ -118,15 +118,25 @@ df = pd.DataFrame(transacoes)
 rec_real = des_real = rec_prev = des_prev = 0.0
 
 if not df.empty:
+    # Conversões robustas
     df["data_prevista"] = pd.to_datetime(df["data_prevista"], errors="coerce").dt.date
     df["data_efetiva"] = pd.to_datetime(df["data_efetiva"], errors="coerce").dt.date
     df["valor"] = pd.to_numeric(df["valor"], errors="coerce").fillna(0.0)
 
-    realizadas = df[df["data_efetiva"].between(inicio, hoje)]
-    previstas = df[
-        df["data_efetiva"].isna()
-        & df["data_prevista"].between(inicio, hoje)
-    ]
+    # Respeitar soft-delete
+    if "excluido" in df.columns:
+        df["excluido"] = df["excluido"].fillna(False)
+        df = df[df["excluido"] == False]
+
+    # Data de referência única (evita sumiço de despesas)
+    df["data_ref"] = df["data_efetiva"].combine_first(df["data_prevista"])
+
+    # Filtro do período corrente
+    periodo = df[df["data_ref"].between(inicio, hoje)]
+
+    # Realizadas x Previstas
+    realizadas = periodo[periodo["data_efetiva"].notna()]
+    previstas = periodo[periodo["data_efetiva"].isna()]
 
     rec_real = realizadas.query("tipo == 'receita'")["valor"].sum()
     des_real = realizadas.query("tipo == 'despesa'")["valor"].sum()
@@ -198,32 +208,34 @@ incluir_previstas = st.checkbox(
 )
 
 if not df.empty:
-    base = df[df["data_efetiva"].notna()].copy()
-    base["data_ref"] = base["data_efetiva"]
+    base = df.copy()
 
-    if incluir_previstas:
-        prevs = df[df["data_efetiva"].isna()].copy()
-        prevs["data_ref"] = prevs["data_prevista"]
-        base = pd.concat([base, prevs])
+    # Se não incluir previstas, mantenha apenas efetivadas
+    if not incluir_previstas:
+        base = base[base["data_efetiva"].notna()]
 
+    # Período corrente via data_ref
     base = base[base["data_ref"].between(inicio, hoje)]
 
-    base["signed"] = base.apply(
-        lambda r: r["valor"] if r["tipo"] == "receita" else -r["valor"],
-        axis=1,
-    )
+    if base.empty:
+        st.info("Sem dados suficientes para gerar o gráfico.")
+    else:
+        base["signed"] = base.apply(
+            lambda r: r["valor"] if r["tipo"] == "receita" else -r["valor"],
+            axis=1,
+        )
 
-    serie = (
-        base.groupby("data_ref")["signed"]
-        .sum()
-        .sort_index()
-        .cumsum()
-    )
+        serie = (
+            base.groupby("data_ref")["signed"]
+            .sum()
+            .sort_index()
+            .cumsum()
+        )
 
-    st.line_chart(
-        pd.DataFrame({"Saldo acumulado": serie}),
-        height=240 if is_mobile() else 420,
-    )
+        st.line_chart(
+            pd.DataFrame({"Saldo acumulado": serie}),
+            height=240 if is_mobile() else 420,
+        )
 else:
     st.info("Sem dados suficientes para gerar o gráfico.")
 
@@ -242,14 +254,8 @@ if not df.empty:
     cat_map = {c["id"]: c["nome"] for c in cats}
 
     despesas_mes = df[
-        (df["tipo"] == "despesa")
-        & (
-            (df["data_efetiva"].between(inicio, hoje))
-            | (
-                df["data_efetiva"].isna()
-                & df["data_prevista"].between(inicio, hoje)
-            )
-        )
+        (df["tipo"] == "despesa") &
+        (df["data_ref"].between(inicio, hoje))
     ].copy()
 
     if despesas_mes.empty:
@@ -261,11 +267,9 @@ if not df.empty:
             .fillna("Sem categoria")
         )
 
-        despesas_mes["Valor"] = despesas_mes["valor"]
-
         graf = (
             despesas_mes
-            .groupby("Categoria")["Valor"]
+            .groupby("Categoria")["valor"]
             .sum()
             .sort_values(ascending=False)
         )
@@ -276,4 +280,3 @@ if not df.empty:
         )
 else:
     st.info("Sem dados para agrupamento.")
-
