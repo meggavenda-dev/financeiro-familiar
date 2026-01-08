@@ -58,5 +58,10 @@
     "id": "cat-20260108021828-1e1e",
     "nome": "Financiamento",
     "tipo": "despesa"
+  },
+  {
+    "id": "cat-20260108021902-471a",
+    "nome": "Transporte",
+    "tipo": "despesa"
   }
 ]
