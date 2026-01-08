@@ -3,28 +3,32 @@
 import streamlit as st
 from github_service import GitHubService
 
+
 def init_context():
     """
-    Inicializa o estado de sessão do Streamlit e tenta instanciar o GitHubService
-    se houver credenciais disponíveis.
+    Inicializa o estado de sessão do Streamlit.
 
-    - Lê valores padrão de st.secrets (repo_full_name, github_token, branch_name).
-    - Define usuário e perfil default (u1 / admin).
-    - Cria instância de GitHubService caso ainda não exista e haja credenciais.
-    - Marca 'connected' no session_state para guiar o fluxo das páginas.
+    - Lê defaults de st.secrets
+    - Define usuário e perfil locais
+    - Instancia GitHubService se possível
     """
+
     ss = st.session_state
 
-    # Valores padrão / secrets
-    ss["repo_full_name"] = ss.get("repo_full_name", st.secrets.get("repo_full_name", ""))
-    ss["github_token"]   = ss.get("github_token",   st.secrets.get("github_token", ""))
-    ss["branch_name"]    = ss.get("branch_name",    st.secrets.get("branch_name", "main"))
+    # -------------------------------------------------
+    # CHANGE: configuração explícita e previsível
+    # -------------------------------------------------
+    ss.setdefault("repo_full_name", st.secrets.get("repo_full_name", ""))
+    ss.setdefault("github_token", st.secrets.get("github_token", ""))
+    ss.setdefault("branch_name", st.secrets.get("branch_name", "main"))
 
-    # Contexto de usuário local (pode ser ligado a autenticação futuramente)
-    ss["usuario_id"] = ss.get("usuario_id", "u1")
-    ss["perfil"] = ss.get("perfil", "admin")
+    # Usuário local (placeholder para auth futura)
+    ss.setdefault("usuario_id", "u1")
+    ss.setdefault("perfil", "admin")
 
-    # Instancia GitHubService se houver credenciais e ainda não existir
+    # -------------------------------------------------
+    # Inicialização do serviço GitHub
+    # -------------------------------------------------
     if "gh" not in ss and ss["repo_full_name"] and ss["github_token"]:
         try:
             ss["gh"] = GitHubService(
@@ -33,19 +37,21 @@ def init_context():
                 branch=ss["branch_name"],
             )
             ss["connected"] = True
+            ss.pop("gh_error", None)
         except Exception as e:
-            # Em caso de falha (token inválido, permissão insuficiente, etc.)
             ss["gh"] = None
             ss["connected"] = False
             ss["gh_error"] = str(e)
     else:
-        # Se já existe 'gh' no estado, considera conectado quando não é None
-        ss["connected"] = "gh" in ss and ss["gh"] is not None
+        ss["connected"] = ss.get("gh") is not None
+
 
 def get_context():
     """
-    Retorna o session_state sem mutações.
-    NÃO chama init_context() para evitar escrita dentro de funções cacheadas.
-    Garanta que init_context() foi chamado no início da execução de cada página/app.
+    Retorna o session_state sem realizar mutações.
+
+    IMPORTANTE:
+    - NÃO chama init_context()
+    - Seguro para ser usado em funções cacheadas
     """
     return st.session_state
