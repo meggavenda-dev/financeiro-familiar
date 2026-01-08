@@ -94,23 +94,30 @@ else:
 saldo_real = rec_real - des_real
 saldo_prev = rec_prev - des_prev
 
-# Saldos por conta (calculados com transações pagas)
+# Saldos por conta (histórico: saldo inicial + transações efetivadas)
 saldo_total = 0.0
 for conta in contas:
     saldo_total += saldo_atual(conta, transacoes)
 
-# KPIs — Realizado
+# KPIs — Realizado (datas BR nos helps)
 c1, c2, c3, c4 = st.columns(4)
-c1.metric("Receitas realizadas (mês)", fmt_brl(rec_real), help=f"Somatório de receitas com data efetiva entre {fmt_date_br(inicio)} e {fmt_date_br(hoje)}")
-c2.metric("Despesas realizadas (mês)", fmt_brl(des_real), help=f"Somatório de despesas com data efetiva entre {fmt_date_br(inicio)} e {fmt_date_br(hoje)}")
-c3.metric("Saldo realizado (mês)", fmt_brl(saldo_real), help="Receitas realizadas − Despesas realizadas")
-c4.metric("Saldo total (contas)", fmt_brl(saldo_total), help="Saldo inicial + histórico de transações efetivadas (todas as datas)")
+c1.metric("Receitas realizadas (mês)", fmt_brl(rec_real),
+          help=f"Somatório de receitas com data efetiva entre {fmt_date_br(inicio)} e {fmt_date_br(hoje)}")
+c2.metric("Despesas realizadas (mês)", fmt_brl(des_real),
+          help=f"Somatório de despesas com data efetiva entre {fmt_date_br(inicio)} e {fmt_date_br(hoje)}")
+c3.metric("Saldo realizado (mês)", fmt_brl(saldo_real),
+          help="Receitas realizadas − Despesas realizadas")
+c4.metric("Saldo total (contas)", fmt_brl(saldo_total),
+          help="Saldo inicial + histórico de transações efetivadas (todas as datas)")
 
 # KPIs — Previsto
 c5, c6, c7 = st.columns(3)
-c5.metric("Receitas previstas (mês)", fmt_brl(rec_prev), help=f"Receitas sem data efetiva, previstas entre {fmt_date_br(inicio)} e {fmt_date_br(hoje)}")
-c6.metric("Despesas previstas (mês)", fmt_brl(des_prev), help=f"Despesas sem data efetiva, previstas entre {fmt_date_br(inicio)} e {fmt_date_br(hoje)}")
-c7.metric("Saldo previsto (mês)", fmt_brl(saldo_prev), help="Receitas previstas − Despesas previstas")
+c5.metric("Receitas previstas (mês)", fmt_brl(rec_prev),
+          help=f"Receitas sem data efetiva, previstas entre {fmt_date_br(inicio)} e {fmt_date_br(hoje)}")
+c6.metric("Despesas previstas (mês)", fmt_brl(des_prev),
+          help=f"Despesas sem data efetiva, previstas entre {fmt_date_br(inicio)} e {fmt_date_br(hoje)}")
+c7.metric("Saldo previsto (mês)", fmt_brl(saldo_prev),
+          help="Receitas previstas − Despesas previstas")
 
 st.divider()
 
@@ -118,7 +125,12 @@ st.divider()
 # Tendência de saldo no mês (cash vs projeção)
 # -------------------------------------------------
 st.subheader("📈 Tendência de saldo no mês")
-incluir_previstas = st.checkbox("Incluir previstas (projeção)", value=False, help="Quando marcado, inclui lançamentos previstos ainda não efetivados.")
+incluir_previstas = st.checkbox(
+    "Incluir previstas (projeção)",
+    value=False,
+    help="Quando marcado, inclui lançamentos previstos ainda não efetivados."
+)
+
 if not df.empty:
     # Base: apenas efetivas para fluxo de caixa real
     efetivas = df.dropna(subset=["data_efetiva_date"]).copy()
@@ -144,9 +156,10 @@ if not df.empty:
         ignore_index=True
     ).sort_values("data_ref")
 
-    # Index como string BR para facilitar leitura no gráfico
+    # Agrupa e formata datas no eixo em dd/mm/aaaa
     saldo_diario = movs.groupby("data_ref")["valor_signed"].sum()
     saldo_diario.index = saldo_diario.index.map(lambda d: fmt_date_br(d))
+
     st.line_chart(saldo_diario.cumsum())
 else:
     st.info("Sem dados suficientes para gerar gráfico.")
@@ -160,10 +173,12 @@ st.subheader("🧩 Despesas por categoria (realizadas no mês)")
 if not df.empty:
     cats, _ = listar_categorias(ctx["gh"])
     cat_map = {c["id"]: c["nome"] for c in cats}
+
     realizadas_df = df.dropna(subset=["data_efetiva_date"]).copy()
     realizadas_df = realizadas_df[
         (realizadas_df["data_efetiva_date"] >= inicio) & (realizadas_df["data_efetiva_date"] <= hoje)
     ]
+
     despesas_df = realizadas_df[realizadas_df["tipo"] == "despesa"].copy()
     if despesas_df.empty:
         st.info("Sem despesas realizadas neste mês.")
