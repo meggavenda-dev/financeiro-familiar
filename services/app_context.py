@@ -38,4 +38,3 @@ def get_context():
     Garanta que init_context() foi chamado no início da execução de cada página/app.
     """
     return st.session_state
-``
