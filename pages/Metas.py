@@ -16,6 +16,9 @@ st.title("🎯 Metas Financeiras")
 # --------------------------------------------------
 # Contexto / Conexão
 # --------------------------------------------------
+from services.app_context import init_context, get_context
+
+init_context()
 ctx = get_context()
 if not ctx.connected:
     st.warning("Conecte ao GitHub na página principal para acessar as metas.")
