@@ -3,8 +3,17 @@
 import base64
 import json
 import requests
+import logging
 from time import sleep
 from typing import Tuple, Any, Optional, Callable
+
+logger = logging.getLogger("financeiro")
+if not logger.handlers:
+    handler = logging.StreamHandler()
+    formatter = logging.Formatter("%(asctime)s [%(levelname)s] %(message)s")
+    handler.setFormatter(formatter)
+    logger.addHandler(handler)
+logger.setLevel(logging.INFO)
 
 class GitHubService:
     """
@@ -19,7 +28,8 @@ class GitHubService:
         branch: str = "main",
         request_timeout: int = 15,
         max_retries: int = 2,
-        user_agent: str = "financeiro-familiar-streamlit"
+        user_agent: str = "financeiro-familiar-streamlit",
+        api_base: str = "https://api.github.com",
     ):
         """
         :param token: PAT com escopo 'repo' (para leitura/escrita).
@@ -28,6 +38,7 @@ class GitHubService:
         :param request_timeout: timeout (segundos) por requisição.
         :param max_retries: tentativas em erros transitórios (timeout/conexão).
         :param user_agent: header de identificação do cliente.
+        :param api_base: base da API (permite GitHub Enterprise).
         """
         if not token or not repo_full_name:
             raise ValueError("Token e repo_full_name são obrigatórios.")
@@ -39,7 +50,7 @@ class GitHubService:
             "User-Agent": user_agent,
         })
 
-        self.api_base = "https://api.github.com"
+        self.api_base = api_base.rstrip("/")
         self.repo = repo_full_name
         self.branch = branch
         self.timeout = request_timeout
@@ -53,22 +64,31 @@ class GitHubService:
         for attempt in range(self.max_retries + 1):
             try:
                 resp = self.session.request(method, url, timeout=self.timeout, **kwargs)
-                # Mensagens mais claras em limite de taxa
-                if "X-RateLimit-Remaining" in resp.headers:
-                    remaining = resp.headers["X-RateLimit-Remaining"]
-                    if remaining == "0":
-                        reset = resp.headers.get("X-RateLimit-Reset", "desconhecido")
-                        raise RuntimeError(f"Rate limit atingido. Reseta em {reset}.")
+                # Diagnóstico de rate limit
+                remaining = int(resp.headers.get("X-RateLimit-Remaining", "1"))
+                if remaining <= 0:
+                    reset = resp.headers.get("X-RateLimit-Reset", "desconhecido")
+                    logger.warning(f"Rate limit atingido; reseta em {reset}")
+                    raise RuntimeError(f"Rate limit atingido. Reseta em {reset}.")
+
+                # 429 (se ocorrer) com Retry-After
+                if resp.status_code == 429:
+                    ra = int(resp.headers.get("Retry-After", "1"))
+                    logger.warning(f"429 recebido. Aguardando {ra}s antes de tentar novamente.")
+                    sleep(ra)
+                    continue
                 return resp
             except requests.exceptions.Timeout:
                 if attempt < self.max_retries:
                     sleep(0.8)
                     continue
+                logger.error("Timeout ao chamar GitHub API.")
                 raise
-            except requests.exceptions.RequestException:
+            except requests.exceptions.RequestException as e:
                 if attempt < self.max_retries:
                     sleep(0.8)
                     continue
+                logger.error(f"Erro de requisição: {e}")
                 raise
 
     # ---------------- Operações principais ----------------
@@ -86,16 +106,19 @@ class GitHubService:
             content_b64 = data.get("content", "")
             decoded = base64.b64decode(content_b64)
             obj = json.loads(decoded.decode("utf-8"))
+            logger.info(f"GET {path} (sha={data.get('sha')[:7] if data.get('sha') else '—'})")
             return obj, data.get("sha")
 
         if r.status_code == 404:
             if default is not None:
+                logger.info(f"{path} inexistente. Inicializando com default.")
                 self.put_json(path, default, f"Inicializa {path}")
                 obj, sha = self.get_json(path, default=None)
                 return obj, sha
             return default, None
 
         if r.status_code in (401, 403):
+            logger.error(f"Acesso negado ao ler {path}: {r.status_code}")
             raise RuntimeError(
                 f"Acesso negado ao ler {path}. Verifique token, escopos e permissões. ({r.status_code})\n{r.text}"
             )
@@ -123,17 +146,23 @@ class GitHubService:
         r = self._request("PUT", url, json=payload)
 
         if r.status_code in (200, 201):
-            return r.json()["content"]["sha"]
+            new_sha = r.json()["content"]["sha"]
+            logger.info(f"PUT {path} OK (nova sha={new_sha[:7]})")
+            return new_sha
 
         if r.status_code == 409:
+            logger.warning(f"409 em {path}. Recarregando e tentando novamente.")
             current, current_sha = self.get_json(path, default=obj)
             payload["sha"] = current_sha
             r2 = self._request("PUT", url, json=payload)
             if r2.status_code in (200, 201):
-                return r2.json()["content"]["sha"]
+                new_sha = r2.json()["content"]["sha"]
+                logger.info(f"PUT {path} após 409 OK (sha={new_sha[:7]})")
+                return new_sha
             raise RuntimeError(f"Conflito ao salvar {path}: {r2.status_code}\n{r2.text}")
 
         if r.status_code in (401, 403):
+            logger.error(f"Acesso negado ao salvar {path}: {r.status_code}")
             raise RuntimeError(
                 f"Acesso negado ao salvar {path}. Verifique token, escopos e branch (proteções). ({r.status_code})\n{r.text}"
             )
@@ -160,24 +189,21 @@ class GitHubService:
         self.put_json(path, new_obj, commit_message, sha=sha)
 
     def update_status_by_id(self, path: str, item_id: str, new_status: str, commit_message_prefix: str = "Update status") -> bool:
-        """Atualiza campo 'status' de um item em lista JSON pelo ID."""
-        def _transform(arr):
-            found = False
-            if isinstance(arr, list):
-                for it in arr:
-                    if isinstance(it, dict) and it.get("id") == item_id:
-                        it["status"] = new_status
-                        found = True
-                        break
-            if not found:
-                return arr
-            return arr
-
-        before, sha = self.get_json(path, default=[])
-        after = _transform(before)
-        if before is after:
+        """
+        Atualiza campo 'status' de um item em lista JSON pelo ID.
+        Nota: status é idealmente derivado no UI. Use apenas se quiser persistir.
+        """
+        arr, sha = self.get_json(path, default=[])
+        found = False
+        if isinstance(arr, list):
+            for it in arr:
+                if isinstance(it, dict) and it.get("id") == item_id:
+                    it["status"] = new_status  # se optar por persistir
+                    found = True
+                    break
+        if not found:
             return False
-        self.put_json(path, after, f"{commit_message_prefix}: {item_id} -> {new_status}", sha=sha)
+        self.put_json(path, arr, f"{commit_message_prefix}: {item_id} -> {new_status}", sha=sha)
         return True
 
     # ---------------- Diagnóstico ----------------
