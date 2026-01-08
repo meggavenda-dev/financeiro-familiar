@@ -1,11 +1,9 @@
-
 # github_service.py
 import base64
 import json
 import requests
 from time import sleep
 from typing import Tuple, Any, Optional, Callable
-
 
 class GitHubService:
     """
@@ -47,7 +45,6 @@ class GitHubService:
         self.max_retries = max_retries
 
     # ---------------- Internos ----------------
-
     def _contents_url(self, path: str) -> str:
         return f"{self.api_base}/repos/{self.repo}/contents/{path}"
 
@@ -74,7 +71,6 @@ class GitHubService:
                 raise
 
     # ---------------- Operações principais ----------------
-
     def get_json(self, path: str, default: Optional[Any] = None) -> Tuple[Any, Optional[str]]:
         """
         Lê um arquivo JSON do repositório (branch).
@@ -87,7 +83,6 @@ class GitHubService:
         if r.status_code == 200:
             data = r.json()
             content_b64 = data.get("content", "")
-            # A API pode retornar com quebras de linha; b64decode lida bem.
             decoded = base64.b64decode(content_b64)
             obj = json.loads(decoded.decode("utf-8"))
             return obj, data.get("sha")
@@ -100,7 +95,6 @@ class GitHubService:
             return default, None
 
         if r.status_code in (401, 403):
-            # 401: token inválido; 403: sem permissão/branch protegida/org policies
             raise RuntimeError(
                 f"Acesso negado ao ler {path}. Verifique token, escopos e permissões. ({r.status_code})\n{r.text}"
             )
@@ -131,7 +125,6 @@ class GitHubService:
             return r.json()["content"]["sha"]
 
         if r.status_code == 409:
-            # Conflito: alguém alterou o arquivo entre o GET e o PUT
             current, current_sha = self.get_json(path, default=obj)
             payload["sha"] = current_sha
             r2 = self._request("PUT", url, json=payload)
@@ -147,18 +140,12 @@ class GitHubService:
         raise RuntimeError(f"Erro ao salvar {path}: {r.status_code}\n{r.text}")
 
     def ensure_file(self, path: str, default: Any) -> Tuple[Any, Optional[str]]:
-        """
-        Garante que o arquivo exista (cria com default se necessário) e retorna seu conteúdo e sha.
-        """
+        """Garante que o arquivo exista (cria com default se necessário) e retorna seu conteúdo e sha."""
         return self.get_json(path, default=default)
 
     # ---------------- Helpers “read-modify-write” ----------------
-
     def append_json(self, path: str, item: Any, commit_message: str) -> None:
-        """
-        Lê uma lista JSON, faz append de 'item' e comita.
-        Útil para Lançamentos (receitas/despesas).
-        """
+        """Append em lista JSON + commit."""
         arr, sha = self.get_json(path, default=[])
         if not isinstance(arr, list):
             raise ValueError(f"{path} não é uma lista JSON.")
@@ -166,19 +153,13 @@ class GitHubService:
         self.put_json(path, arr, commit_message, sha=sha)
 
     def update_json(self, path: str, transform: Callable[[Any], Any], commit_message: str) -> None:
-        """
-        Lê o JSON, aplica a função 'transform(obj)' e comita o resultado.
-        Útil para atualizar status, editar um item, etc.
-        """
+        """Atualiza JSON aplicando uma função transformadora."""
         obj, sha = self.get_json(path, default=[])
         new_obj = transform(obj)
         self.put_json(path, new_obj, commit_message, sha=sha)
 
     def update_status_by_id(self, path: str, item_id: str, new_status: str, commit_message_prefix: str = "Update status") -> bool:
-        """
-        Atualiza o campo 'status' de um item em uma lista JSON, dado seu 'id'.
-        Retorna True se encontrou/atualizou; False caso contrário.
-        """
+        """Atualiza campo 'status' de um item em lista JSON pelo ID."""
         def _transform(arr):
             found = False
             if isinstance(arr, list):
@@ -188,24 +169,19 @@ class GitHubService:
                         found = True
                         break
             if not found:
-                # Não altera se não encontrou
                 return arr
             return arr
 
         before, sha = self.get_json(path, default=[])
         after = _transform(before)
         if before is after:
-            # Não encontrou o item
             return False
         self.put_json(path, after, f"{commit_message_prefix}: {item_id} -> {new_status}", sha=sha)
         return True
 
     # ---------------- Diagnóstico ----------------
-
     def ping(self) -> bool:
-        """
-        Verifica se consegue listar o repositório (diagnóstico rápido).
-        """
+        """Verifica se consegue listar o repositório (diagnóstico rápido)."""
         url = f"{self.api_base}/repos/{self.repo}"
         r = self._request("GET", url)
         return r.status_code == 200
