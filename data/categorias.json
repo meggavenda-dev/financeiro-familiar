@@ -38,5 +38,10 @@
     "id": "cat-20260108021714-18ad",
     "nome": "Tv por Assinatura",
     "tipo": "despesa"
+  },
+  {
+    "id": "cat-20260108021726-6691",
+    "nome": "Cursos (Diversos)",
+    "tipo": "despesa"
   }
 ]
