@@ -89,6 +89,7 @@ with tab_pagar:
 
             pagar_btn = col5.button("Marcar como paga", key=f"pagar-{c['id']}", disabled=(status_atual == "paga"))
             nova_prev = col5.date_input("Reagendar", value=prev or date.today(), key=f"prev-{c['id']}")
+            col5.caption(f"Selecionada: **{fmt_date_br(nova_prev)}**")
             salvar_prev = col5.button("Salvar data", key=f"save-prev-{c['id']}")
 
             if pagar_btn:
@@ -132,6 +133,7 @@ with tab_receber:
 
             receber_btn = col5.button("Marcar como recebida", key=f"receber-{c['id']}", disabled=(status_atual == "paga"))
             nova_prev = col5.date_input("Reagendar", value=prev or date.today(), key=f"prev-rec-{c['id']}")
+            col5.caption(f"Selecionada: **{fmt_date_br(nova_prev)}**")
             salvar_prev = col5.button("Salvar data", key=f"save-prev-rec-{c['id']}")
 
             if receber_btn:
