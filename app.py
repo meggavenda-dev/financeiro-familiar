@@ -19,6 +19,9 @@ from services.data_loader import load_all, listar_categorias
 from services.finance_core import normalizar_tx, saldo_atual
 from services.utils import fmt_brl, fmt_date_br
 
+# -------------------------------------------------
+# Configuração da página
+# -------------------------------------------------
 st.set_page_config(
     page_title="Financeiro Familiar",
     page_icon="💰",
@@ -90,7 +93,7 @@ transacoes = [
 contas = data["data/contas.json"]["content"]
 
 # -------------------------------------------------
-# KPIs do mês
+# KPIs do mês (CAIXA REAL)
 # -------------------------------------------------
 hoje = date.today()
 inicio = date(hoje.year, hoje.month, 1)
@@ -105,6 +108,7 @@ if not df.empty:
     df["valor"] = pd.to_numeric(df["valor"], errors="coerce").fillna(0.0)
 
     realizadas = df[df["data_efetiva"].between(inicio, hoje)]
+
     previstas = df[
         df["data_efetiva"].isna()
         & df["data_prevista"].between(inicio, hoje)
@@ -112,6 +116,7 @@ if not df.empty:
 
     rec_real = realizadas.query("tipo == 'receita'")["valor"].sum()
     des_real = realizadas.query("tipo == 'despesa'")["valor"].sum()
+
     rec_prev = previstas.query("tipo == 'receita'")["valor"].sum()
     des_prev = previstas.query("tipo == 'despesa'")["valor"].sum()
 
@@ -152,10 +157,9 @@ c4.metric(
 )
 
 # -------------------------------------------------
-# KPIs — Previsto
+# KPIs — Previsto (planejamento)
 # -------------------------------------------------
 c5, c6, c7 = st.columns(3)
-
 c5.metric("Receitas previstas (mês)", fmt_brl(rec_prev))
 c6.metric("Despesas previstas (mês)", fmt_brl(des_prev))
 c7.metric("Saldo previsto (mês)", fmt_brl(saldo_prev))
@@ -163,14 +167,11 @@ c7.metric("Saldo previsto (mês)", fmt_brl(saldo_prev))
 st.divider()
 
 # -------------------------------------------------
-# CHANGE: gráfico com eixo temporal real
+# Gráfico de saldo acumulado
 # -------------------------------------------------
 st.subheader("📈 Tendência de saldo no mês")
 
-incluir_previstas = st.checkbox(
-    "Incluir previstas (projeção)",
-    value=False
-)
+incluir_previstas = st.checkbox("Incluir previstas (projeção)", value=False)
 
 if not df.empty:
     base = df[df["data_efetiva"].notna()].copy()
@@ -181,9 +182,7 @@ if not df.empty:
         prevs["data_ref"] = prevs["data_prevista"]
         base = pd.concat([base, prevs])
 
-    base = base[
-        base["data_ref"].between(inicio, hoje)
-    ]
+    base = base[base["data_ref"].between(inicio, hoje)]
 
     base["signed"] = base.apply(
         lambda r: r["valor"] if r["tipo"] == "receita" else -r["valor"],
@@ -198,16 +197,20 @@ if not df.empty:
     )
 
     st.line_chart(pd.DataFrame({"Saldo acumulado": serie}))
-
 else:
     st.info("Sem dados suficientes para gerar o gráfico.")
 
 st.divider()
 
 # -------------------------------------------------
-# Despesas por categoria
+# 🧩 Despesas por categoria (REALIZADAS + PREVISTAS)
 # -------------------------------------------------
 st.subheader("🧩 Despesas por categoria (mês)")
+
+st.caption(
+    "Este gráfico inclui despesas realizadas (pagas) "
+    "e despesas previstas/estornadas dentro do mês."
+)
 
 if not df.empty:
     cats, _ = listar_categorias(ctx["gh"])
@@ -215,14 +218,32 @@ if not df.empty:
 
     despesas_mes = df[
         (df["tipo"] == "despesa")
-        & df["data_efetiva"].between(inicio, hoje)
+        & (
+            (df["data_efetiva"].between(inicio, hoje))
+            | (
+                df["data_efetiva"].isna()
+                & df["data_prevista"].between(inicio, hoje)
+            )
+        )
     ].copy()
 
     if despesas_mes.empty:
-        st.info("Sem despesas realizadas neste mês.")
+        st.info("Sem despesas no período selecionado.")
     else:
         despesas_mes["categoria"] = despesas_mes["categoria_id"].map(cat_map).fillna("Sem categoria")
-        agg = despesas_mes.groupby("categoria")["valor"].sum().sort_values(ascending=False)
+
+        despesas_mes["Status"] = despesas_mes.apply(
+            lambda r: "Realizada" if pd.notna(r["data_efetiva"]) else "Prevista",
+            axis=1
+        )
+
+        agg = (
+            despesas_mes
+            .groupby(["categoria", "Status"])["valor"]
+            .sum()
+            .sort_values(ascending=False)
+        )
+
         st.bar_chart(agg)
 
 else:
