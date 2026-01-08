@@ -1,16 +1,16 @@
+
 # services/app_context.py
 import streamlit as st
 from github_service import GitHubService
-
 
 def init_context():
     """Inicializa sessão e tenta instanciar GitHubService se houver credenciais."""
     ss = st.session_state
 
-    # Inicializações idempotentes (podem ser chamadas várias vezes na parte "normal" do app)
+    # Valores padrão / secrets
     ss["repo_full_name"] = ss.get("repo_full_name", st.secrets.get("repo_full_name", ""))
-    ss["github_token"] = ss.get("github_token", st.secrets.get("github_token", ""))
-    ss["branch_name"] = ss.get("branch_name", st.secrets.get("branch_name", "main"))
+    ss["github_token"]     = ss.get("github_token",     st.secrets.get("github_token", ""))
+    ss["branch_name"]      = ss.get("branch_name",      st.secrets.get("branch_name", "main"))
 
     ss["usuario_id"] = ss.get("usuario_id", "u1")
     ss["perfil"] = ss.get("perfil", "admin")
@@ -23,12 +23,13 @@ def init_context():
                 repo_full_name=ss["repo_full_name"],
                 branch=ss["branch_name"],
             )
-        except Exception:
-            # UI lidará com erro/aviso
-            pass
-
-    ss["connected"] = "gh" in ss
-
+            ss["connected"] = True
+        except Exception as e:
+            ss["gh"] = None
+            ss["connected"] = False
+            ss["gh_error"] = str(e)
+    else:
+        ss["connected"] = "gh" in ss and ss["gh"] is not None
 
 def get_context():
     """
