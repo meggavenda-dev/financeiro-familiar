@@ -9,6 +9,9 @@ from services.permissions import require_admin
 st.set_page_config(page_title="Categorias", page_icon="🏷️", layout="wide")
 st.title("🏷️ Categorias de Receitas e Despesas")
 
+from services.app_context import init_context, get_context
+
+init_context()
 ctx = get_context()
 if not ctx.get("connected"):
     st.warning("Conecte ao GitHub na página principal.")
