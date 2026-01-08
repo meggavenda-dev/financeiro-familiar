@@ -19,6 +19,9 @@ st.title("📅 Contas a Pagar / Receber")
 # --------------------------------------------------
 # Contexto
 # --------------------------------------------------
+from services.app_context import init_context, get_context
+
+init_context()
 ctx = get_context()
 if not ctx.connected:
     st.warning("Conecte ao GitHub na página principal antes de usar esta página.")
