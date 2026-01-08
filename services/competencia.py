@@ -12,4 +12,3 @@ def label_competencia(comp: str) -> str:
         return f"{meses[int(m)-1]}/{y[-2:]}"
     except Exception:
         return comp
-
