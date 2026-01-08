@@ -70,7 +70,8 @@ for o in orcamentos:
     c1, c2, c3, c4 = st.columns([4,2,2,2])
     with c1:
         cat_atual = cat_map.get(o.get("categoria_id"), "—")
-        novo_cat = st.selectbox("Categoria", options=list(cat_map.values()), index=list(cat_map.values()).index(cat_atual) if cat_atual in cat_map.values() else 0, key=f"orc-cat-{o['id']}")
+        idx = list(cat_map.values()).index(cat_atual) if cat_atual in cat_map.values() else 0
+        novo_cat = st.selectbox("Categoria", options=list(cat_map.values()), index=idx, key=f"orc-cat-{o['id']}")
     with c2:
         novo_lim = st.number_input("Limite (R$)", min_value=0.01, step=0.01, value=float(o.get("limite_mensal", 0.0)), key=f"orc-lim-{o['id']}")
     with c3:
@@ -91,4 +92,3 @@ for o in orcamentos:
             st.cache_data.clear()
             st.success("Orçamento removido.")
             st.rerun()
-
