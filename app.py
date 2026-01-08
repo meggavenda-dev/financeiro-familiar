@@ -131,6 +131,9 @@ if not df.empty:
     # Data de referência única (evita sumiço de despesas)
     df["data_ref"] = df["data_efetiva"].combine_first(df["data_prevista"])
 
+    # 🔧 CRÍTICO: remover linhas sem data_ref antes dos filtros
+    df = df.dropna(subset=["data_ref"])
+
     # Filtro do período corrente
     periodo = df[df["data_ref"].between(inicio, hoje)]
 
