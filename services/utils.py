@@ -22,10 +22,3 @@ def clear_cache_and_rerun():
     """Limpa cache de dados e reroda a app/página."""
     st.cache_data.clear()
     st.rerun()
-
-def save_json_and_refresh(gh, path, obj, msg, sha):
-    """Helper para salvar JSON (com SHA) e atualizar UI."""
-    new_sha = gh.put_json(path, obj, msg, sha=sha)
-    st.cache_data.clear()
-    st.rerun()
-    return new_sha
