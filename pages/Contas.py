@@ -4,11 +4,12 @@ import streamlit as st
 import pandas as pd
 from datetime import date, timedelta
 
-from services.app_context import get_context
+from services.app_context import init_context, get_context
 from services.data_loader import load_all
 from services.permissions import require_admin
 from services.finance_core import normalizar_tx, atualizar
-from services.status import derivar_status, status_badge
+from services.status import derivar_status
+from services.utils import fmt_brl, parse_date_safe, clear_cache_and_rerun
 
 # --------------------------------------------------
 # Página
@@ -19,21 +20,19 @@ st.title("📅 Contas a Pagar / Receber")
 # --------------------------------------------------
 # Contexto
 # --------------------------------------------------
-from services.app_context import init_context, get_context
-
 init_context()
 ctx = get_context()
-if not ctx.connected:
+if not ctx.get("connected"):
     st.warning("Conecte ao GitHub na página principal antes de usar esta página.")
     st.stop()
 
 require_admin(ctx)
-gh = ctx.gh
+gh = ctx.get("gh")
 
 # --------------------------------------------------
 # Dados (unificados)
 # --------------------------------------------------
-data = load_all((ctx.repo_full_name, ctx.branch_name))
+data = load_all((ctx["repo_full_name"], ctx["branch_name"]))
 trans_map = data["data/transacoes.json"]
 transacoes = [
     t for t in (normalizar_tx(x) for x in trans_map["content"])
@@ -41,19 +40,9 @@ transacoes = [
 ]
 sha_trans = trans_map["sha"]
 
-def fmt_brl(v: float) -> str:
-    return f"R$ {v:,.2f}".replace(",", "X").replace(".", ",").replace("X", ".")
-
-def parse_date_safe(d):
-    try:
-        return pd.to_datetime(d).date()
-    except Exception:
-        return None
-
 def salvar(transacoes, mensagem: str):
-    new_sha = gh.put_json("data/transacoes.json", transacoes, mensagem, sha=sha_trans)
-    st.cache_data.clear()
-    st.rerun()
+    gh.put_json("data/transacoes.json", transacoes, mensagem, sha=sha_trans)
+    clear_cache_and_rerun()
 
 def badge_calc(tx):
     st_calc = derivar_status(tx.get("data_prevista"), tx.get("data_efetiva"))
@@ -92,7 +81,6 @@ with tab_pagar:
                 key=f"pagar-{c['id']}"
             )
 
-            # aplicar mudança (paga -> set data_efetiva; outros -> limpar)
             if novo_status != status_atual:
                 if novo_status == "paga":
                     c["data_efetiva"] = date.today().isoformat()
