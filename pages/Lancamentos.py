@@ -4,66 +4,45 @@ import streamlit as st
 import pandas as pd
 from datetime import date, datetime
 
-from services.app_context import init_context, get_context
-from services.data_loader import load_all
+from services.app_context import get_config, get_context
+from services.data_loader import load_transactions, load_categories, load_accounts, load_budgets
 from services.permissions import require_admin
 from services.finance_core import (
-    novo_id,
-    criar,
-    atualizar,
-    excluir,
-    gerar_parcelas,
-    normalizar_tx,
-    baixar,
-    estornar,
+    novo_id, criar, atualizar, excluir,
+    gerar_parcelas, normalizar_tx, baixar
 )
-from services.status import status_badge, derivar_status
+from services.status import derivar_status
 from services.competencia import competencia_from_date, label_competencia
-from services.utils import fmt_brl, clear_cache_and_rerun
+from services.utils import fmt_brl, save_json_and_refresh
 
-# --------------------------------------------------
-# Página
-# --------------------------------------------------
 st.set_page_config(page_title="Lançamentos (Transações)", page_icon="🧾", layout="wide")
 st.title("🧾 Lançamentos")
 
-# --------------------------------------------------
-# Contexto / Permissões
-# --------------------------------------------------
-init_context()
-ctx = get_context()
-if not ctx.get("connected"):
+cfg = get_config()
+if not cfg.connected:
     st.warning("Conecte ao GitHub na página principal.")
     st.stop()
+require_admin(cfg)
 
-require_admin(ctx)
+ctx = get_context()
 gh = ctx.get("gh")
 
-# --------------------------------------------------
-# Carregamento
-# --------------------------------------------------
-data = load_all((ctx["repo_full_name"], ctx["branch_name"]))
+key = (cfg.repo_full_name, cfg.branch_name)
+trans_map = load_transactions(key)
+cats_map  = load_categories(key)
+acc_map   = load_accounts(key)
+bud_map   = load_budgets(key)
 
-trans_map = data["data/transacoes.json"]
-transacoes = [
-    t for t in (normalizar_tx(x) for x in trans_map["content"])
-    if t is not None
-]
+transacoes = [t for t in (normalizar_tx(x) for x in trans_map["content"]) if t is not None]
 sha_trans = trans_map["sha"]
+categorias = cats_map["content"]
+contas = acc_map["content"]
+orcamentos = bud_map["content"]
 
-categorias = data.get("data/categorias.json", {"content": []})["content"]
-contas = data.get("data/contas.json", {"content": []})["content"]
-orcamentos = data.get("data/orcamentos.json", {"content": []})["content"]
+def cat_by_id(cid): return next((c for c in categorias if c.get("id")==cid), None)
+def conta_by_id(cid): return next((c for c in contas if c.get("id")==cid), None)
 
-def cat_opts():
-    return {c.get("id"): c.get("nome") for c in categorias} or {"cat1": "Geral"}
-
-def conta_opts():
-    return {c.get("id"): c.get("nome") for c in contas} or {"c1": "Conta Principal"}
-
-# --------------------------------------------------
-# Filtros de competência e texto
-# --------------------------------------------------
+# ----------------- Filtros por competência -----------------
 competencias = sorted(
     {competencia_from_date(pd.to_datetime(x.get("data_prevista") or x.get("data_efetiva")).date())
      for x in transacoes if (x.get("data_prevista") or x.get("data_efetiva"))},
@@ -76,8 +55,7 @@ competencias = sorted(set(competencias), reverse=True)
 
 st.subheader("🔍 Filtros")
 colf1, colf2 = st.columns([2,2])
-comp_select = colf1.selectbox("Competência (mês)", options=competencias,
-                              format_func=label_competencia, index=0)
+comp_select = colf1.selectbox("Competência (mês)", options=competencias, format_func=label_competencia, index=0)
 busca_texto = colf2.text_input("Buscar por descrição")
 
 def filtrar_por_comp(ds):
@@ -98,9 +76,7 @@ def filtrar_por_comp(ds):
 
 mes_itens = filtrar_por_comp(transacoes)
 
-# --------------------------------------------------
-# Resumo Mensal
-# --------------------------------------------------
+# ----------------- Resumo Mensal -----------------
 st.subheader(f"📅 Resumo — {label_competencia(comp_select)}")
 
 def soma(ds, tipo=None, status=None):
@@ -127,23 +103,18 @@ kc4.metric("🔴 Vencido", fmt_brl(total_vencido))
 
 st.divider()
 
-# --------------------------------------------------
-# Cadastro — novo / parcelado
-# --------------------------------------------------
+# ----------------- Cadastro — novo / parcelado -----------------
 st.subheader("➕ Nova transação")
-
-cat_map = cat_opts()
-conta_map = conta_opts()
 
 with st.form("nova_tx"):
     c1, c2, c3, c4 = st.columns([2,1,2,2])
     tipo = c1.selectbox("Tipo", ["despesa", "receita"])
     valor = c2.number_input("Valor (R$)", min_value=0.01, step=0.01)
     data_prev = c3.date_input("Data prevista", value=date.today())
-    conta_nome = c4.selectbox("Conta", options=list(conta_map.values()))
+    conta_sel = c4.selectbox("Conta", options=contas, format_func=lambda c: c.get("nome","—"))
 
     d1, d2 = st.columns([2,2])
-    categoria_nome = d1.selectbox("Categoria", options=list(cat_map.values()))
+    categoria_sel = d1.selectbox("Categoria", options=categorias, format_func=lambda c: c.get("nome","—"))
     descricao = d2.text_input("Descrição", placeholder="Ex.: Supermercado, Internet, Salário")
 
     e1, e2 = st.columns([2,2])
@@ -151,12 +122,9 @@ with st.form("nova_tx"):
     qtd_parc = e2.number_input("Qtd. parcelas", min_value=1, max_value=60, value=1, disabled=not parcelar)
 
     pagar_hoje = st.checkbox("Marcar como paga/recebida imediatamente")
-
     salvar_btn = st.form_submit_button("Salvar")
 
 if salvar_btn:
-    inv_cat = {v:k for k,v in cat_map.items()}
-    inv_conta = {v:k for k,v in conta_map.items()}
     base = {
         "id": novo_id("tx"),
         "tipo": tipo,
@@ -164,8 +132,8 @@ if salvar_btn:
         "valor": float(valor),
         "data_prevista": data_prev.isoformat(),
         "data_efetiva": (date.today().isoformat() if pagar_hoje else None),
-        "conta_id": inv_conta.get(conta_nome, "c1"),
-        "categoria_id": inv_cat.get(categoria_nome),
+        "conta_id": conta_sel.get("id", "c1"),
+        "categoria_id": categoria_sel.get("id"),
         "excluido": False,
         "parcelamento": None,
         "recorrente": False,
@@ -174,16 +142,12 @@ if salvar_btn:
         pars = gerar_parcelas(base, int(qtd_parc))
         for p in pars:
             criar(transacoes, p)
-        gh.put_json("data/transacoes.json", transacoes, f"Add {qtd_parc} parcelas", sha=sha_trans)
-        clear_cache_and_rerun()
+        save_json_and_refresh(gh, "data/transacoes.json", transacoes, f"Add {qtd_parc} parcelas", sha_trans)
     else:
         criar(transacoes, base)
-        gh.put_json("data/transacoes.json", transacoes, "Add transação", sha=sha_trans)
-        clear_cache_and_rerun()
+        save_json_and_refresh(gh, "data/transacoes.json", transacoes, "Add transação", sha_trans)
 
-# --------------------------------------------------
-# Lista por competência (com ações)
-# --------------------------------------------------
+# ----------------- Lista por competência (com ações) -----------------
 st.subheader(f"📋 Lançamentos — {label_competencia(comp_select)}")
 
 lista_mes = mes_itens
@@ -192,17 +156,15 @@ if not lista_mes:
 else:
     df = pd.DataFrame(lista_mes)
     df["status"] = df.apply(lambda r: derivar_status(r.get("data_prevista"), r.get("data_efetiva")), axis=1)
-    df["status_badge"] = df["status"].apply(status_badge)
     df["Data prevista"] = pd.to_datetime(df["data_prevista"], errors="coerce").dt.date
     df["Data efetiva"] = pd.to_datetime(df["data_efetiva"], errors="coerce").dt.date
 
-    show = df[["tipo", "descricao", "valor", "Data prevista", "Data efetiva", "status_badge", "id"]].rename(columns={
-        "tipo": "Tipo", "descricao": "Descrição", "valor": "Valor", "status_badge": "Status", "id": "ID"
+    show = df[["tipo", "descricao", "valor", "Data prevista", "Data efetiva", "status", "id"]].rename(columns={
+        "tipo": "Tipo", "descricao": "Descrição", "valor": "Valor", "status": "Status", "id": "ID"
     }).sort_values("Data prevista", ascending=False)
-
     st.dataframe(show, use_container_width=True)
 
-    st.markdown("### ✏️ Ações")
+    st.markdown("### ✏️ Ações rápidas")
     ac1, ac2, ac3, ac4 = st.columns([3,3,3,2])
     id_edit = ac1.text_input("ID para editar")
     id_del = ac2.text_input("ID para excluir")
@@ -217,15 +179,13 @@ else:
         if alvo_del:
             ok = excluir(transacoes, alvo_del["id"])
             if ok:
-                gh.put_json("data/transacoes.json", transacoes, f"Exclui {alvo_del['id']}", sha=sha_trans)
-                clear_cache_and_rerun()
+                save_json_and_refresh(gh, "data/transacoes.json", transacoes, f"Exclui {alvo_del['id']}", sha_trans)
             else:
                 st.error("Não foi possível excluir.")
         elif alvo_pay:
             baixar(alvo_pay)
             atualizar(transacoes, alvo_pay)
-            gh.put_json("data/transacoes.json", transacoes, f"Baixa {alvo_pay['id']}", sha=sha_trans)
-            clear_cache_and_rerun()
+            save_json_and_refresh(gh, "data/transacoes.json", transacoes, f"Baixa {alvo_pay['id']}", sha_trans)
         elif alvo_edit:
             st.markdown(f"#### Editando {alvo_edit.get('id')} — {alvo_edit.get('descricao','')}")
             with st.form("editar_item"):
@@ -236,7 +196,6 @@ else:
 
                 e4 = st.text_input("Descrição", value=alvo_edit.get("descricao",""))
                 limpar_pagamento = st.checkbox("Estornar (remover pagamento)?", value=False)
-
                 ok_btn = st.form_submit_button("Salvar edição")
 
             if ok_btn:
@@ -250,18 +209,14 @@ else:
                     "atualizado_em": datetime.now().isoformat(),
                 })
                 atualizar(transacoes, item_editado)
-                gh.put_json("data/transacoes.json", transacoes, f"Edita {alvo_edit.get('id')}", sha=sha_trans)
-                clear_cache_and_rerun()
+                save_json_and_refresh(gh, "data/transacoes.json", transacoes, f"Edita {alvo_edit.get('id')}", sha_trans)
         else:
             st.info("Informe um ID válido para editar, excluir ou pagar.")
 
 st.divider()
 
-# --------------------------------------------------
-# 💰 Orçamento mensal por categoria (opcional)
-# --------------------------------------------------
+# ----------------- Orçamento mensal por categoria -----------------
 st.subheader("💰 Orçamento mensal por categoria")
-
 if not orcamentos:
     st.info("Nenhum orçamento cadastrado em data/orcamentos.json.")
 else:
