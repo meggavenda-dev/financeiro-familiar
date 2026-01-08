@@ -1,4 +1,8 @@
 [
-  { "categoria_id": "cd1", "limite_mensal": 1200 }
+  {
+    "id": "o-20260108131415-c98d",
+    "categoria_id": "cd1",
+    "limite_mensal": 1200.0,
+    "ativo": true
+  }
 ]
-
