@@ -1,4 +1,17 @@
 [
-  { "id": "cat1", "nome": "Alimentação", "tipo": "despesa" },
-  { "id": "cat2", "nome": "Salário", "tipo": "receita" }
+  {
+    "id": "cat1",
+    "nome": "Alimentação",
+    "tipo": "despesa"
+  },
+  {
+    "id": "cat2",
+    "nome": "Salário",
+    "tipo": "receita"
+  },
+  {
+    "id": "cat-20260108021533-12ea",
+    "nome": "Supermercado",
+    "tipo": "despesa"
+  }
 ]
