@@ -43,5 +43,10 @@
     "id": "cat-20260108021726-6691",
     "nome": "Cursos (Diversos)",
     "tipo": "despesa"
+  },
+  {
+    "id": "cat-20260108021741-bc23",
+    "nome": "Empréstimos",
+    "tipo": "despesa"
   }
 ]
