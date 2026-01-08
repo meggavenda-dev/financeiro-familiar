@@ -48,5 +48,10 @@
     "id": "cat-20260108021741-bc23",
     "nome": "Empréstimos",
     "tipo": "despesa"
+  },
+  {
+    "id": "cat-20260108021744-8905",
+    "nome": "Empréstimos",
+    "tipo": "despesa"
   }
 ]
