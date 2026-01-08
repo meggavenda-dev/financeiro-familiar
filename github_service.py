@@ -1,3 +1,4 @@
+
 # github_service.py
 import base64
 import json
@@ -20,14 +21,6 @@ class GitHubService:
         max_retries: int = 2,
         user_agent: str = "financeiro-familiar-streamlit"
     ):
-        """
-        :param token: PAT com escopo 'repo' (para leitura/escrita).
-        :param repo_full_name: "owner/repo".
-        :param branch: branch alvo (ex.: 'main').
-        :param request_timeout: timeout (segundos) por requisição.
-        :param max_retries: tentativas em erros transitórios (timeout/conexão).
-        :param user_agent: header de identificação do cliente.
-        """
         if not token or not repo_full_name:
             raise ValueError("Token e repo_full_name são obrigatórios.")
 
@@ -44,7 +37,6 @@ class GitHubService:
         self.timeout = request_timeout
         self.max_retries = max_retries
 
-    # ---------------- Internos ----------------
     def _contents_url(self, path: str) -> str:
         return f"{self.api_base}/repos/{self.repo}/contents/{path}"
 
@@ -52,7 +44,6 @@ class GitHubService:
         for attempt in range(self.max_retries + 1):
             try:
                 resp = self.session.request(method, url, timeout=self.timeout, **kwargs)
-                # Mensagens mais claras em limite de taxa
                 if "X-RateLimit-Remaining" in resp.headers:
                     remaining = resp.headers["X-RateLimit-Remaining"]
                     if remaining == "0":
@@ -70,12 +61,7 @@ class GitHubService:
                     continue
                 raise
 
-    # ---------------- Operações principais ----------------
     def get_json(self, path: str, default: Optional[Any] = None) -> Tuple[Any, Optional[str]]:
-        """
-        Lê um arquivo JSON do repositório (branch).
-        Retorna (objeto, sha). Se não existir e houver default, cria e lê novamente.
-        """
         url = self._contents_url(path)
         params = {"ref": self.branch}
         r = self._request("GET", url, params=params)
@@ -102,20 +88,11 @@ class GitHubService:
         raise RuntimeError(f"Erro ao ler {path}: {r.status_code}\n{r.text}")
 
     def put_json(self, path: str, obj: Any, message: str, sha: Optional[str] = None) -> str:
-        """
-        Cria/atualiza um arquivo JSON com commit. Retorna o novo SHA.
-        Usa 'sha' para controle de concorrência; se houver conflito (409),
-        recarrega e tenta novamente uma vez.
-        """
         url = self._contents_url(path)
         content_str = json.dumps(obj, ensure_ascii=False, indent=2)
         b64 = base64.b64encode(content_str.encode("utf-8")).decode("utf-8")
 
-        payload = {
-            "message": message,
-            "content": b64,
-            "branch": self.branch
-        }
+        payload = {"message": message, "content": b64, "branch": self.branch}
         if sha:
             payload["sha"] = sha
 
@@ -140,12 +117,9 @@ class GitHubService:
         raise RuntimeError(f"Erro ao salvar {path}: {r.status_code}\n{r.text}")
 
     def ensure_file(self, path: str, default: Any) -> Tuple[Any, Optional[str]]:
-        """Garante que o arquivo exista (cria com default se necessário) e retorna seu conteúdo e sha."""
         return self.get_json(path, default=default)
 
-    # ---------------- Helpers “read-modify-write” ----------------
     def append_json(self, path: str, item: Any, commit_message: str) -> None:
-        """Append em lista JSON + commit."""
         arr, sha = self.get_json(path, default=[])
         if not isinstance(arr, list):
             raise ValueError(f"{path} não é uma lista JSON.")
@@ -153,13 +127,11 @@ class GitHubService:
         self.put_json(path, arr, commit_message, sha=sha)
 
     def update_json(self, path: str, transform: Callable[[Any], Any], commit_message: str) -> None:
-        """Atualiza JSON aplicando uma função transformadora."""
         obj, sha = self.get_json(path, default=[])
         new_obj = transform(obj)
         self.put_json(path, new_obj, commit_message, sha=sha)
 
     def update_status_by_id(self, path: str, item_id: str, new_status: str, commit_message_prefix: str = "Update status") -> bool:
-        """Atualiza campo 'status' de um item em lista JSON pelo ID."""
         def _transform(arr):
             found = False
             if isinstance(arr, list):
@@ -179,9 +151,7 @@ class GitHubService:
         self.put_json(path, after, f"{commit_message_prefix}: {item_id} -> {new_status}", sha=sha)
         return True
 
-    # ---------------- Diagnóstico ----------------
     def ping(self) -> bool:
-        """Verifica se consegue listar o repositório (diagnóstico rápido)."""
         url = f"{self.api_base}/repos/{self.repo}"
         r = self._request("GET", url)
         return r.status_code == 200
