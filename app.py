@@ -15,8 +15,7 @@ from datetime import date
 from services.app_context import get_context, init_context
 from services.data_loader import load_all, listar_categorias
 from services.finance_core import normalizar_tx, saldo_atual
-from services.status import derivar_status
-from services.utils import fmt_brl, data_ref_row
+from services.utils import fmt_brl, data_ref_row, fmt_date_br
 
 st.set_page_config(page_title="Financeiro Familiar", page_icon="💰", layout="wide")
 st.title("💰 Financeiro Familiar")
@@ -102,15 +101,15 @@ for conta in contas:
 
 # KPIs — Realizado
 c1, c2, c3, c4 = st.columns(4)
-c1.metric("Receitas realizadas (mês)", fmt_brl(rec_real), help="Somatório de receitas com data efetiva no mês corrente")
-c2.metric("Despesas realizadas (mês)", fmt_brl(des_real), help="Somatório de despesas com data efetiva no mês corrente")
+c1.metric("Receitas realizadas (mês)", fmt_brl(rec_real), help=f"Somatório de receitas com data efetiva entre {fmt_date_br(inicio)} e {fmt_date_br(hoje)}")
+c2.metric("Despesas realizadas (mês)", fmt_brl(des_real), help=f"Somatório de despesas com data efetiva entre {fmt_date_br(inicio)} e {fmt_date_br(hoje)}")
 c3.metric("Saldo realizado (mês)", fmt_brl(saldo_real), help="Receitas realizadas − Despesas realizadas")
-c4.metric("Saldo total (contas)", fmt_brl(saldo_total), help="Baseado apenas em transações com data efetiva nas contas")
+c4.metric("Saldo total (contas)", fmt_brl(saldo_total), help="Saldo inicial + histórico de transações efetivadas (todas as datas)")
 
 # KPIs — Previsto
 c5, c6, c7 = st.columns(3)
-c5.metric("Receitas previstas (mês)", fmt_brl(rec_prev), help="Receitas sem data efetiva, previstas para este mês")
-c6.metric("Despesas previstas (mês)", fmt_brl(des_prev), help="Despesas sem data efetiva, previstas para este mês")
+c5.metric("Receitas previstas (mês)", fmt_brl(rec_prev), help=f"Receitas sem data efetiva, previstas entre {fmt_date_br(inicio)} e {fmt_date_br(hoje)}")
+c6.metric("Despesas previstas (mês)", fmt_brl(des_prev), help=f"Despesas sem data efetiva, previstas entre {fmt_date_br(inicio)} e {fmt_date_br(hoje)}")
 c7.metric("Saldo previsto (mês)", fmt_brl(saldo_prev), help="Receitas previstas − Despesas previstas")
 
 st.divider()
@@ -145,8 +144,10 @@ if not df.empty:
         ignore_index=True
     ).sort_values("data_ref")
 
-    saldo_diario = movs.groupby("data_ref")["valor_signed"].sum().cumsum()
-    st.line_chart(saldo_diario)
+    # Index como string BR para facilitar leitura no gráfico
+    saldo_diario = movs.groupby("data_ref")["valor_signed"].sum()
+    saldo_diario.index = saldo_diario.index.map(lambda d: fmt_date_br(d))
+    st.line_chart(saldo_diario.cumsum())
 else:
     st.info("Sem dados suficientes para gerar gráfico.")
 
