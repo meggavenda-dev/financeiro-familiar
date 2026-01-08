@@ -97,6 +97,59 @@ with st.sidebar:
     st.selectbox("Perfil", ["admin", "comum"], key="perfil")
 
 # -------------------------------------------------
+# Helpers locais (normalização robusta)
+# -------------------------------------------------
+def _parse_date_any(series: pd.Series) -> pd.Series:
+    """
+    Tenta converter para date com duas passadas:
+    1) ISO/geral
+    2) Formato brasileiro (dayfirst=True)
+    Retorna uma Series de objetos date (ou NaT quando não possível).
+    """
+    s1 = pd.to_datetime(series, errors="coerce")
+    # Segunda passada apenas onde falhou
+    mask = s1.isna()
+    if mask.any():
+        s2 = pd.to_datetime(series[mask], errors="coerce", dayfirst=True)
+        s1 = s1.copy()
+        s1[mask] = s2
+    return s1.dt.date
+
+def _normalizar_df(transacoes: list[dict]) -> pd.DataFrame:
+    df = pd.DataFrame(transacoes)
+    if df.empty:
+        return df
+
+    # Valor
+    df["valor"] = pd.to_numeric(df.get("valor"), errors="coerce").fillna(0.0)
+
+    # Soft-delete
+    df["excluido"] = df.get("excluido", False)
+    df["excluido"] = df["excluido"].fillna(False)
+    df = df[df["excluido"] == False]
+
+    # Tipo normalizado
+    df["tipo"] = (
+        df.get("tipo")
+          .astype(str)
+          .str.strip()
+          .str.lower()
+    )
+    df = df[df["tipo"].isin(["despesa", "receita"])]
+
+    # Datas com tolerância (ISO + dd/mm/aaaa)
+    df["data_prevista"] = _parse_date_any(df.get("data_prevista"))
+    df["data_efetiva"]  = _parse_date_any(df.get("data_efetiva"))
+
+    # Data de referência única
+    df["data_ref"] = df["data_efetiva"].combine_first(df["data_prevista"])
+
+    # Remover linhas sem referência de data
+    df = df.dropna(subset=["data_ref"])
+
+    return df.reset_index(drop=True)
+
+# -------------------------------------------------
 # Carregamento de dados
 # -------------------------------------------------
 data = load_all((ctx["repo_full_name"], ctx["branch_name"]))
@@ -105,7 +158,6 @@ transacoes = [
     t for t in (normalizar_tx(x) for x in data["data/transacoes.json"]["content"])
     if t is not None
 ]
-
 contas = data["data/contas.json"]["content"]
 
 # -------------------------------------------------
@@ -113,33 +165,17 @@ contas = data["data/contas.json"]["content"]
 # -------------------------------------------------
 hoje = date.today()
 inicio = date(hoje.year, hoje.month, 1)
-df = pd.DataFrame(transacoes)
+
+df = _normalizar_df(transacoes)
 
 rec_real = des_real = rec_prev = des_prev = 0.0
 
 if not df.empty:
-    # Conversões robustas
-    df["data_prevista"] = pd.to_datetime(df["data_prevista"], errors="coerce").dt.date
-    df["data_efetiva"] = pd.to_datetime(df["data_efetiva"], errors="coerce").dt.date
-    df["valor"] = pd.to_numeric(df["valor"], errors="coerce").fillna(0.0)
-
-    # Respeitar soft-delete
-    if "excluido" in df.columns:
-        df["excluido"] = df["excluido"].fillna(False)
-        df = df[df["excluido"] == False]
-
-    # Data de referência única (evita sumiço de despesas)
-    df["data_ref"] = df["data_efetiva"].combine_first(df["data_prevista"])
-
-    # 🔧 CRÍTICO: remover linhas sem data_ref antes dos filtros
-    df = df.dropna(subset=["data_ref"])
-
-    # Filtro do período corrente
+    # Período corrente
     periodo = df[df["data_ref"].between(inicio, hoje)]
 
-    # Realizadas x Previstas
     realizadas = periodo[periodo["data_efetiva"].notna()]
-    previstas = periodo[periodo["data_efetiva"].isna()]
+    previstas  = periodo[periodo["data_efetiva"].isna()]
 
     rec_real = realizadas.query("tipo == 'receita'")["valor"].sum()
     des_real = realizadas.query("tipo == 'despesa'")["valor"].sum()
@@ -150,7 +186,7 @@ saldo_real = rec_real - des_real
 saldo_prev = rec_prev - des_prev
 
 # -------------------------------------------------
-# Saldo total das contas
+# Saldo total das contas (caixa real)
 # -------------------------------------------------
 saldo_total = sum(saldo_atual(c, transacoes) for c in contas)
 
@@ -158,10 +194,6 @@ saldo_total = sum(saldo_atual(c, transacoes) for c in contas)
 # Helper: renderização segura de KPIs em N colunas
 # -------------------------------------------------
 def render_kpis(items, desktop_cols=4, mobile_cols=1):
-    """
-    items: lista de tuplas (label, value, help?) ou (label, value)
-    Distribui as métricas nas colunas disponíveis sem estourar índice.
-    """
     cols = responsive_columns(desktop=desktop_cols, mobile=mobile_cols)
     n = len(cols)
     for i, it in enumerate(items):
@@ -174,7 +206,7 @@ def render_kpis(items, desktop_cols=4, mobile_cols=1):
             col.metric(label, value)
 
 # -------------------------------------------------
-# KPIs — Realizado (RESPONSIVO, sem IndexError)
+# KPIs — Realizado
 # -------------------------------------------------
 section("📊 Resultado do mês")
 
@@ -187,7 +219,7 @@ kpis_realizado = [
 render_kpis(kpis_realizado, desktop_cols=4, mobile_cols=1)
 
 # -------------------------------------------------
-# KPIs — Previsto (planejamento) — também seguro
+# KPIs — Previsto (planejamento)
 # -------------------------------------------------
 section("📅 Planejamento")
 
@@ -205,10 +237,7 @@ st.divider()
 # -------------------------------------------------
 section("📈 Tendência de saldo no mês")
 
-incluir_previstas = st.checkbox(
-    "Incluir previstas (projeção)",
-    value=False,
-)
+incluir_previstas = st.checkbox("Incluir previstas (projeção)", value=False)
 
 if not df.empty:
     base = df.copy()
@@ -247,10 +276,7 @@ st.divider()
 # -------------------------------------------------
 # Despesas por categoria
 # -------------------------------------------------
-section(
-    "🧩 Despesas por categoria (mês)",
-    "Inclui despesas realizadas e previstas",
-)
+section("🧩 Despesas por categoria (mês)", "Inclui realizadas e previstas")
 
 if not df.empty:
     cats, _ = listar_categorias(ctx["gh"])
@@ -283,3 +309,16 @@ if not df.empty:
         )
 else:
     st.info("Sem dados para agrupamento.")
+
+# -------------------------------------------------
+# 🔍 Diagnóstico (opcional)
+# -------------------------------------------------
+with st.expander("🔍 Diagnóstico (use para conferir filtros)", expanded=False):
+    st.write("Registros totais:", len(df))
+    if not df.empty:
+        st.write("Receitas (mês):", int(((df["tipo"] == "receita") & (df["data_ref"].between(inicio, hoje))).sum()))
+        st.write("Despesas (mês):", int(((df["tipo"] == "despesa") & (df["data_ref"].between(inicio, hoje))).sum()))
+
+        st.write("Amostra de despesas (mês):")
+        amostra = df[(df["tipo"] == "despesa") & (df["data_ref"].between(inicio, hoje))].head(10)
+        st.dataframe(amostra[["descricao", "valor", "data_prevista", "data_efetiva", "data_ref", "categoria_id"]])
