@@ -67,27 +67,26 @@ with tab_pagar:
     else:
         for c in pagar_items:
             prev = parse_date_safe(c.get("data_prevista"))
-            col1, col2, col3, col4, col5 = st.columns([4,2,3,2,2])
+            status_atual = derivar_status(c.get("data_prevista"), c.get("data_efetiva"))
+            col1, col2, col3, col4, col5 = st.columns([4,2,3,2,3])
             col1.write(f"**{c.get('descricao', '—')}**")
             col2.write(fmt_brl(float(c.get("valor", 0.0))))
             col3.write(f"Previsto: {prev.strftime('%d/%m/%Y') if prev else '—'}")
             col4.write(badge_calc(c))
 
-            status_atual = derivar_status(c.get("data_prevista"), c.get("data_efetiva"))
-            novo_status = col5.selectbox(
-                "Status",
-                ["planejada","vencendo","vencida","paga"],
-                index=["planejada","vencendo","vencida","paga"].index(status_atual),
-                key=f"pagar-{c['id']}"
-            )
+            pagar_btn = col5.button("Marcar como paga", key=f"pagar-{c['id']}", disabled=(status_atual == "paga"))
+            nova_prev = col5.date_input("Reagendar", value=prev or date.today(), key=f"prev-{c['id']}")
+            salvar_prev = col5.button("Salvar data", key=f"save-prev-{c['id']}")
 
-            if novo_status != status_atual:
-                if novo_status == "paga":
-                    c["data_efetiva"] = date.today().isoformat()
-                else:
-                    c["data_efetiva"] = None
+            if pagar_btn:
+                c["data_efetiva"] = date.today().isoformat()
                 atualizar(transacoes, c)
-                salvar(transacoes, f"Update pagar: {c.get('descricao')} -> {novo_status}")
+                salvar(transacoes, f"Baixa pagar: {c.get('descricao')}")
+
+            if salvar_prev and nova_prev and (not c.get("data_efetiva")):
+                c["data_prevista"] = nova_prev.isoformat()
+                atualizar(transacoes, c)
+                salvar(transacoes, f"Reagendamento pagar: {c.get('descricao')} -> {nova_prev.isoformat()}")
 
 # -------------------- A RECEBER (receita) --------------------
 with tab_receber:
@@ -98,27 +97,26 @@ with tab_receber:
     else:
         for c in receber_items:
             prev = parse_date_safe(c.get("data_prevista"))
-            col1, col2, col3, col4, col5 = st.columns([4,2,3,2,2])
+            status_atual = derivar_status(c.get("data_prevista"), c.get("data_efetiva"))
+            col1, col2, col3, col4, col5 = st.columns([4,2,3,2,3])
             col1.write(f"**{c.get('descricao', '—')}**")
             col2.write(fmt_brl(float(c.get("valor", 0.0))))
             col3.write(f"Previsto: {prev.strftime('%d/%m/%Y') if prev else '—'}")
             col4.write(badge_calc(c))
 
-            status_atual = derivar_status(c.get("data_prevista"), c.get("data_efetiva"))
-            novo_status = col5.selectbox(
-                "Status",
-                ["planejada","vencendo","vencida","paga"],
-                index=["planejada","vencendo","vencida","paga"].index(status_atual),
-                key=f"receber-{c['id']}"
-            )
+            receber_btn = col5.button("Marcar como recebida", key=f"receber-{c['id']}", disabled=(status_atual == "paga"))
+            nova_prev = col5.date_input("Reagendar", value=prev or date.today(), key=f"prev-rec-{c['id']}")
+            salvar_prev = col5.button("Salvar data", key=f"save-prev-rec-{c['id']}")
 
-            if novo_status != status_atual:
-                if novo_status == "paga":
-                    c["data_efetiva"] = date.today().isoformat()
-                else:
-                    c["data_efetiva"] = None
+            if receber_btn:
+                c["data_efetiva"] = date.today().isoformat()
                 atualizar(transacoes, c)
-                salvar(transacoes, f"Update receber: {c.get('descricao')} -> {novo_status}")
+                salvar(transacoes, f"Baixa receber: {c.get('descricao')}")
+
+            if salvar_prev and nova_prev and (not c.get("data_efetiva")):
+                c["data_prevista"] = nova_prev.isoformat()
+                atualizar(transacoes, c)
+                salvar(transacoes, f"Reagendamento receber: {c.get('descricao')} -> {nova_prev.isoformat()}")
 
 # -------------------- Resumo futuro --------------------
 st.divider()
