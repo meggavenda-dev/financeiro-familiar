@@ -338,3 +338,4 @@ else:
     if estouradas:
         nomes = ", ".join(r["Categoria"] for r in estouradas)
         st.error(f"🔔 Orçamento estourado: {nomes}")
+
