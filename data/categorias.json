@@ -13,5 +13,10 @@
     "id": "cat-20260108021533-12ea",
     "nome": "Supermercado",
     "tipo": "despesa"
+  },
+  {
+    "id": "cat-20260108021547-91c1",
+    "nome": "Compras (Diversas)",
+    "tipo": "despesa"
   }
 ]
