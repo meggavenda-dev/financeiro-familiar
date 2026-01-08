@@ -1,3 +1,4 @@
+
 # services/data_loader.py
 import streamlit as st
 from services.app_context import get_context
@@ -42,7 +43,6 @@ DEFAULTS = {
     "data/orcamentos.json": [],
 }
 
-
 def _migrar_legado(gh, data_dict: dict) -> None:
     """
     Migra seus arquivos antigos (despesas/receitas/contas_pagar/contas_receber)
@@ -59,8 +59,8 @@ def _migrar_legado(gh, data_dict: dict) -> None:
     # Coleta conteúdo legado
     despesas = data_dict.get("data/despesas.json", {"content": []})["content"]
     receitas = data_dict.get("data/receitas.json", {"content": []})["content"]
-    pagar = data_dict.get("data/contas_pagar.json", {"content": []})["content"]
-    receber = data_dict.get("data/contas_receber.json", {"content": []})["content"]
+    pagar    = data_dict.get("data/contas_pagar.json", {"content": []})["content"]
+    receber  = data_dict.get("data/contas_receber.json", {"content": []})["content"]
 
     txs = []
 
@@ -146,7 +146,6 @@ def _migrar_legado(gh, data_dict: dict) -> None:
         # Limpa cache para refletir estado novo
         st.cache_data.clear()
 
-
 def _sanitizar_lista_de_dicts(gh, path: str, obj, sha: str, commit_msg: str) -> tuple[list, str]:
     """
     Sanitiza um conteúdo de arquivo JSON que deve ser uma lista de dicts.
@@ -164,7 +163,6 @@ def _sanitizar_lista_de_dicts(gh, path: str, obj, sha: str, commit_msg: str) -> 
         return clean, new_sha
     return obj, sha
 
-
 @st.cache_data(ttl=60, show_spinner=False)
 def load_all(cache_key: tuple):
     """
@@ -175,7 +173,6 @@ def load_all(cache_key: tuple):
     """
     ctx = get_context()
 
-    # ctx é um dict (st.session_state). Use .get ou indexação por chave.
     if not ctx.get("connected"):
         raise RuntimeError("Não conectado ao GitHub. Informe repositório e token na barra lateral.")
 
@@ -210,35 +207,25 @@ def load_all(cache_key: tuple):
 
     return data
 
-
 # ---------- Funções utilitárias de categorias ----------
-
 def listar_categorias(gh) -> tuple[list, str | None]:
-    """
-    Retorna (categorias, sha) garantindo existência do arquivo.
-    """
+    """Retorna (categorias, sha) garantindo existência do arquivo."""
     cats, sha = gh.ensure_file("data/categorias.json", DEFAULTS["data/categorias.json"])
     # Sanitiza: apenas dicts
     cats = [c for c in cats if isinstance(c, dict)]
     return cats, sha
 
-
 def adicionar_categoria(gh, nome: str, tipo: str = "despesa") -> dict:
-    """
-    Adiciona uma nova categoria ao data/categorias.json.
-    """
+    """Adiciona uma nova categoria ao data/categorias.json."""
     categorias, sha = listar_categorias(gh)
     nova = {"id": novo_id("cat"), "nome": (nome or "").strip(), "tipo": tipo}
     categorias.append(nova)
-    new_sha = gh.put_json("data/categorias.json", categorias, f"Nova categoria: {nova['nome']}", sha=sha)
+    gh.put_json("data/categorias.json", categorias, f"Nova categoria: {nova['nome']}", sha=sha)
     st.cache_data.clear()
     return nova
 
-
 def atualizar_categoria(gh, categoria_id: str, nome: str | None = None, tipo: str | None = None) -> bool:
-    """
-    Atualiza campos de uma categoria existente.
-    """
+    """Atualiza campos de uma categoria existente."""
     categorias, sha = listar_categorias(gh)
     ok = False
     for c in categorias:
@@ -254,11 +241,8 @@ def atualizar_categoria(gh, categoria_id: str, nome: str | None = None, tipo: st
         st.cache_data.clear()
     return ok
 
-
 def excluir_categoria(gh, categoria_id: str) -> bool:
-    """
-    Remove categoria por ID. (Hard delete; se preferir, marque como 'excluido')
-    """
+    """Remove categoria por ID. (Hard delete; se preferir, marque como 'excluido')"""
     categorias, sha = listar_categorias(gh)
     novo = [c for c in categorias if c.get("id") != categoria_id]
     if len(novo) == len(categorias):
