@@ -22,9 +22,7 @@ from services.utils import fmt_brl, clear_cache_and_rerun, fmt_date_br
 
 # -------------------- helpers locais --------------------
 def _parse_br_date_or_error(raw: str) -> date | None:
-    """
-    Converte 'dd/mm/aaaa' para date. Retorna None se inválido.
-    """
+    """Converte 'dd/mm/aaaa' para date. Retorna None se inválido."""
     try:
         return datetime.strptime((raw or "").strip(), "%d/%m/%Y").date()
     except Exception:
@@ -44,7 +42,6 @@ ctx = get_context()
 if not ctx.get("connected"):
     st.warning("Conecte ao GitHub na página principal.")
     st.stop()
-
 require_admin(ctx)
 gh = ctx.get("gh")
 
@@ -54,10 +51,7 @@ gh = ctx.get("gh")
 data = load_all((ctx["repo_full_name"], ctx["branch_name"]))
 
 trans_map = data["data/transacoes.json"]
-transacoes = [
-    t for t in (normalizar_tx(x) for x in trans_map["content"])
-    if t is not None
-]
+transacoes = [t for t in (normalizar_tx(x) for x in trans_map["content"]) if t is not None]
 sha_trans = trans_map["sha"]
 
 categorias = data.get("data/categorias.json", {"content": []})["content"]
@@ -84,11 +78,11 @@ if default_comp not in competencias:
 competencias = sorted(set(competencias), reverse=True)
 
 st.subheader("🔍 Filtros")
-colf1, colf2, colf3 = st.columns([2, 2, 2])
-comp_select = colf1.selectbox("Competência (mês)", options=competencias,
-                              format_func=label_competencia, index=0)
-busca_texto = colf2.text_input("Buscar por descrição")
+colf1, colf2, colf3, colf4 = st.columns([2, 2, 2, 2])
+comp_select = colf1.selectbox("Competência (mês)", options=competencias, format_func=label_competencia, index=0)
+busca_texto = colf2.text_input("Buscar por descrição/código")
 somente_em_aberto = colf3.checkbox("Somente em aberto (não pagas)", value=False)
+tipo_filter = colf4.selectbox("Tipo", ["todos", "despesa", "receita"], index=0)
 
 def filtrar_por_comp(ds):
     out = []
@@ -99,8 +93,10 @@ def filtrar_por_comp(ds):
         comp = competencia_from_date(pd.to_datetime(dt_str).date())
         if comp != comp_select:
             continue
+        if tipo_filter != "todos" and d.get("tipo") != tipo_filter:
+            continue
         if busca_texto:
-            txt = f"{d.get('descricao','')}".lower()
+            txt = f"{d.get('descricao','')} {d.get('codigo','')}".lower()
             if busca_texto.lower() not in txt:
                 continue
         if somente_em_aberto:
@@ -112,7 +108,7 @@ def filtrar_por_comp(ds):
 mes_itens = filtrar_por_comp(transacoes)
 
 # --------------------------------------------------
-# Resumo Mensal (clarificado por tipo e status)
+# Resumo Mensal (por tipo e status)
 # --------------------------------------------------
 st.subheader(f"📅 Resumo — {label_competencia(comp_select)}")
 
@@ -127,44 +123,33 @@ def soma_por_tipo_e_status(ds, tipo: str, status: str | None = None) -> float:
         total += float(x.get("valor", 0.0))
     return total
 
-# Totais por tipo (mês)
 total_rec = soma_por_tipo_e_status(mes_itens, tipo="receita", status=None)
 total_des = soma_por_tipo_e_status(mes_itens, tipo="despesa", status=None)
-
-# Pagas
 rec_pagas = soma_por_tipo_e_status(mes_itens, tipo="receita", status="paga")
 des_pagas = soma_por_tipo_e_status(mes_itens, tipo="despesa", status="paga")
-
-# Em aberto (não pagas)
 rec_abertas = total_rec - rec_pagas
 des_abertas = total_des - des_pagas
-
-# Vencidas
 rec_vencidas = soma_por_tipo_e_status(mes_itens, tipo="receita", status="vencida")
 des_vencidas = soma_por_tipo_e_status(mes_itens, tipo="despesa", status="vencida")
 
-# Linha 1 — pagas
 l1c1, l1c2 = st.columns(2)
-l1c1.metric("📥 Receitas pagas (mês)", fmt_brl(rec_pagas), help="Receitas com data efetiva na competência selecionada")
-l1c2.metric("💸 Despesas pagas (mês)", fmt_brl(des_pagas), help="Despesas com data efetiva na competência selecionada")
+l1c1.metric("📥 Receitas pagas (mês)", fmt_brl(rec_pagas))
+l1c2.metric("💸 Despesas pagas (mês)", fmt_brl(des_pagas))
 
-# Linha 2 — em aberto
 l2c1, l2c2 = st.columns(2)
-l2c1.metric("📥 Receitas em aberto (mês)", fmt_brl(rec_abertas), help="Receitas ainda não efetivadas na competência")
-l2c2.metric("💸 Despesas em aberto (mês)", fmt_brl(des_abertas), help="Despesas ainda não efetivadas na competência")
+l2c1.metric("📥 Receitas em aberto (mês)", fmt_brl(rec_abertas))
+l2c2.metric("💸 Despesas em aberto (mês)", fmt_brl(des_abertas))
 
-# Linha 3 — vencidas
 l3c1, l3c2 = st.columns(2)
-l3c1.metric("📥 Receitas vencidas (mês)", fmt_brl(rec_vencidas), help="Receitas não pagas com data prevista passada")
-l3c2.metric("💸 Despesas vencidas (mês)", fmt_brl(des_vencidas), help="Despesas não pagas com data prevista passada")
+l3c1.metric("📥 Receitas vencidas (mês)", fmt_brl(rec_vencidas))
+l3c2.metric("💸 Despesas vencidas (mês)", fmt_brl(des_vencidas))
 
 st.divider()
 
 # --------------------------------------------------
-# Cadastro — novo / parcelado (data BR no campo)
+# Cadastro — novo / parcelado (data BR texto + validação)
 # --------------------------------------------------
 st.subheader("➕ Nova transação")
-
 cat_map = cat_opts()
 conta_map = conta_opts()
 
@@ -172,8 +157,6 @@ with st.form("nova_tx"):
     c1, c2, c3, c4 = st.columns([2, 1, 2, 2])
     tipo = c1.selectbox("Tipo", ["despesa", "receita"])
     valor = c2.number_input("Valor (R$)", min_value=0.01, step=0.01)
-
-    # Campo de texto BR com validação
     data_prev_br_str = c3.text_input("Data prevista (dd/mm/aaaa)", value=fmt_date_br(date.today()))
     c3.caption("Use o formato **dd/mm/aaaa** (ex.: 08/01/2026)")
     conta_nome = c4.selectbox("Conta", options=list(conta_map.values()))
@@ -191,19 +174,22 @@ with st.form("nova_tx"):
     salvar_btn = st.form_submit_button("Salvar")
 
 if salvar_btn:
-    # Valida BR e converte para date
     data_prev_dt = _parse_br_date_or_error(data_prev_br_str)
     if not data_prev_dt:
         st.error("Data prevista inválida. Use dd/mm/aaaa.")
     else:
         inv_cat = {v: k for k, v in cat_map.items()}
         inv_conta = {v: k for k, v in conta_map.items()}
+        existing_codes = [t.get("codigo") for t in transacoes if isinstance(t.get("codigo"), int)]
+        next_code = (max(existing_codes) + 1) if existing_codes else 1
+
         base = {
             "id": novo_id("tx"),
+            "codigo": next_code,
             "tipo": tipo,
             "descricao": (descricao or "").strip(),
             "valor": float(valor),
-            "data_prevista": data_prev_dt.isoformat(),  # persistência em ISO
+            "data_prevista": data_prev_dt.isoformat(),
             "data_efetiva": (date.today().isoformat() if pagar_hoje else None),
             "conta_id": inv_conta.get(conta_nome, "c1"),
             "categoria_id": inv_cat.get(categoria_nome),
@@ -223,7 +209,7 @@ if salvar_btn:
             clear_cache_and_rerun()
 
 # --------------------------------------------------
-# Lista por competência (com ações por linha)
+# Lista por competência — tabela compacta com Código + ações por linha
 # --------------------------------------------------
 st.subheader(f"📋 Lançamentos — {label_competencia(comp_select)}")
 
@@ -232,39 +218,46 @@ if not lista_mes:
     st.info("Nenhum lançamento para este mês.")
 else:
     df = pd.DataFrame(lista_mes)
+
     df["status"] = df.apply(lambda r: derivar_status(r.get("data_prevista"), r.get("data_efetiva")), axis=1)
-    df["status_badge"] = df["status"].apply(status_badge)
+    df["Status"] = df["status"].apply(status_badge)
 
-    # Colunas formatadas BR
-    df["Data prevista (BR)"] = df["data_prevista"].apply(lambda x: fmt_date_br(x))
-    df["Data efetiva (BR)"] = df["data_efetiva"].apply(lambda x: fmt_date_br(x))
+    df["Prevista (BR)"] = df["data_prevista"].apply(lambda x: fmt_date_br(x))
+    df["Efetiva (BR)"] = df["data_efetiva"].apply(lambda x: fmt_date_br(x))
 
-    # Coluna auxiliar para ordenação por data prevista real
-    df["_data_prevista_sort"] = pd.to_datetime(df["data_prevista"], errors="coerce")
+    conta_map_rev = {c.get("id"): c.get("nome") for c in contas}
+    cat_map_rev = {c.get("id"): c.get("nome") for c in categorias}
+    df["Conta"] = df["conta_id"].map(conta_map_rev).fillna(df["conta_id"])
+    df["Categoria"] = df["categoria_id"].map(cat_map_rev).fillna(df["categoria_id"])
+    df["Tipo"] = df["tipo"].map({"despesa": "💸 Despesa", "receita": "📥 Receita"}).fillna(df["tipo"])
 
-    df_show = df[["tipo", "descricao", "valor", "Data prevista (BR)", "Data efetiva (BR)", "status_badge", "id", "_data_prevista_sort"]].rename(columns={
-        "tipo": "Tipo", "descricao": "Descrição", "valor": "Valor", "status_badge": "Status", "id": "ID"
-    }).sort_values("_data_prevista_sort", ascending=False).drop(columns=["_data_prevista_sort"])
+    df["_sort_prev"] = pd.to_datetime(df["data_prevista"], errors="coerce")
+    df = df.rename(columns={"descricao": "Descrição"})
+    show_cols = ["codigo", "Tipo", "Descrição", "valor", "Prevista (BR)", "Efetiva (BR)", "Status", "Conta", "Categoria", "id"]
+    show_df = df[show_cols].sort_values(["_sort_prev", "codigo"], ascending=[False, True]).drop(columns=["id"]).reset_index(drop=True)
 
     # Exportar CSV dos itens filtrados
-    csv_bytes = df_show.to_csv(index=False).encode("utf-8")
+    csv_bytes = show_df.to_csv(index=False).encode("utf-8")
     st.download_button("📤 Exportar CSV (filtros aplicados)", data=csv_bytes, file_name=f"lancamentos_{comp_select}.csv", mime="text/csv")
 
-    st.dataframe(df_show, use_container_width=True)
+    st.dataframe(show_df, use_container_width=True, hide_index=True)
 
     st.markdown("### ✏️ Ações por linha")
-    for row in df_show.to_dict(orient="records"):
-        r_id = row["ID"]
+    for row in df.sort_values(["_sort_prev", "codigo"], ascending=[False, True]).to_dict(orient="records"):
+        r_id = row["id"]
+        r_code = row.get("codigo")
         alvo = next((x for x in transacoes if x.get("id") == r_id), None)
         if not alvo:
             continue
-        col1, col2, col3, col4, col5 = st.columns([4, 2, 3, 2, 4])
-        col1.write(f"**{row['Descrição']}**")
-        col2.write(fmt_brl(float(row["Valor"])))
-        col3.write(f"Prevista: {row['Data prevista (BR)']}")
-        col4.write(row["Status"])
-        pagar_btn = col5.button("Marcar como paga/recebida", key=f"pay-{r_id}", disabled=(row["Status"] == "✅ Paga"))
-        editar_exp = st.expander(f"Editar — {r_id}", expanded=False)
+
+        c1, c2, c3, c4, c5 = st.columns([2, 4, 2, 2, 3])
+        c1.write(f"**{r_code}**")
+        c2.write(f"{row['Descrição']}")
+        c3.write(fmt_brl(float(row["valor"])))
+        c4.write(row["Status"])
+        pagar_btn = c5.button("Marcar como paga/recebida", key=f"pay-{r_id}", disabled=("✅" in row["Status"]))
+
+        editar_exp = st.expander(f"Editar — {r_code}", expanded=False)
         excluir_btn = st.button("Excluir", key=f"del-{r_id}")
 
         if pagar_btn:
@@ -279,8 +272,7 @@ else:
                 novo_tipo = e1.selectbox("Tipo", ["despesa", "receita"], index=["despesa", "receita"].index(alvo.get("tipo", "despesa")))
                 novo_valor = e2.number_input("Valor (R$)", min_value=0.01, step=0.01, value=float(alvo.get("valor", 0.0)))
 
-                # Campo de texto BR para edição da data prevista
-                prev_str = fmt_date_br(alvo.get("data_prevista"))  # mostra BR atual
+                prev_str = fmt_date_br(alvo.get("data_prevista"))
                 nova_prev_str = st.text_input("Data prevista (dd/mm/aaaa)", value=prev_str, key=f"edit-prev-{r_id}")
                 st.caption("Use o formato **dd/mm/aaaa**")
 
@@ -298,7 +290,7 @@ else:
                     item_editado.update({
                         "tipo": novo_tipo,
                         "valor": float(novo_valor),
-                        "data_prevista": nova_prev_dt.isoformat(),  # persistência em ISO
+                        "data_prevista": nova_prev_dt.isoformat(),
                         "descricao": (e4 or "").strip(),
                         "data_efetiva": None if limpar_pagamento else alvo.get("data_efetiva"),
                         "atualizado_em": datetime.now().isoformat(),
