@@ -8,15 +8,15 @@ from services.data_loader import (
     load_all,
     listar_categorias,
     adicionar_categoria,
+    atualizar_categoria,
+    excluir_categoria,
 )
 from services.permissions import require_admin
 
 st.set_page_config(page_title="Categorias", page_icon="🏷️", layout="wide")
-st.title("🏷️ Categorias de Receitas e Despesas")
+st.title("🏷️ Categorias")
 
-# --------------------------------------------------
-# Contexto
-# --------------------------------------------------
+# ---------------- Contexto ----------------
 init_context()
 ctx = get_context()
 if not ctx.get("connected"):
@@ -27,154 +27,104 @@ require_admin(ctx)
 gh = ctx.get("gh")
 data = load_all((ctx["repo_full_name"], ctx["branch_name"]))
 
-# --------------------------------------------------
-# Carrega categorias
-# --------------------------------------------------
+# ---------------- Dados ----------------
 cats, sha = listar_categorias(gh)
 cats = [c for c in cats if isinstance(c, dict)]
 
-# --------------------------------------------------
-# Nova categoria (compacto)
-# --------------------------------------------------
+# Garantir que todas têm 'codigo' numérico (auto-preencher ao carregar)
+existing_codes = {c.get("codigo") for c in cats if isinstance(c.get("codigo"), int)}
+next_code = (max(existing_codes) + 1) if existing_codes else 1
+for c in cats:
+    if c.get("codigo") is None or not isinstance(c.get("codigo"), int):
+        c["codigo"] = next_code
+        next_code += 1
+# Persistir caso tenha sido gerado código
+gh.put_json("data/categorias.json", cats, "Garantir campo 'codigo' (numérico)", sha=sha)
+st.cache_data.clear()
+
+# ---------------- Nova categoria ----------------
 with st.expander("➕ Nova categoria", expanded=True):
-    col1, col2, col3 = st.columns([4, 2, 2])
-    with col1:
-        nome_novo = st.text_input("Nome", placeholder="Ex.: Supermercado, Internet, Salário…", key="novo_nome")
-    with col2:
-        tipo_novo = st.selectbox("Tipo", ["despesa", "receita"], key="novo_tipo")
-    with col3:
-        if st.button("Adicionar", type="primary", use_container_width=True):
-            if not (nome_novo or "").strip():
-                st.error("Informe um nome válido.")
-            else:
-                nova = adicionar_categoria(gh, nome_novo, tipo_novo)
-                st.success(f"Categoria '{nova['nome']}' adicionada.")
-                st.rerun()
+    c1, c2, c3 = st.columns([4, 2, 2])
+    with c1:
+        nome_novo = st.text_input("Nome", placeholder="Ex.: Supermercado, Internet, Salário…")
+    with c2:
+        tipo_novo = st.selectbox("Tipo", ["despesa", "receita"])
+    with c3:
+        codigo_novo = st.number_input("Código (opcional)", min_value=1, step=1, format="%d")
+
+    if st.button("Adicionar", type="primary"):
+        if not (nome_novo or "").strip():
+            st.error("Informe um nome válido.")
+        else:
+            nova = adicionar_categoria(gh, nome_novo, tipo_novo, codigo=int(codigo_novo) if codigo_novo else None)
+            st.success(f"Categoria '{nova['nome']}' adicionada (código {nova['codigo']}).")
+            st.rerun()
 
 st.divider()
 
-# --------------------------------------------------
-# Filtros
-# --------------------------------------------------
-st.subheader("🔍 Filtros")
-f1, f2, f3 = st.columns([3, 2, 2])
-with f1:
-    filtro_texto = st.text_input("Buscar por nome", placeholder="Digite parte do nome…")
-with f2:
-    filtro_tipo = st.selectbox("Tipo", ["todos", "despesa", "receita"], index=0)
-with f3:
-    ordenar_por = st.selectbox("Ordenar por", ["nome", "tipo"], index=0)
+# ---------------- Filtros ----------------
+f1, f2 = st.columns([3, 2])
+filtro_texto = f1.text_input("Buscar por nome/código")
+filtro_tipo = f2.selectbox("Tipo", ["todos", "despesa", "receita"], index=0)
 
-# Aplica filtros
 df = pd.DataFrame(cats)
-if df.empty:
-    st.info("Nenhuma categoria cadastrada.")
-    st.stop()
-
-df = df[["id", "nome", "tipo"]].copy()
+df = df[["codigo", "nome", "tipo", "id"]].sort_values(["tipo", "nome"]).reset_index(drop=True)
 
 if filtro_texto:
-    df = df[df["nome"].str.contains(filtro_texto, case=False, na=False)]
+    s = filtro_texto.strip().lower()
+    df = df[df.apply(lambda r: s in str(r["nome"]).lower() or s in str(r["codigo"]), axis=1)]
 
 if filtro_tipo != "todos":
     df = df[df["tipo"] == filtro_tipo]
 
-df = df.sort_values(by=[ordenar_por, "nome"]).reset_index(drop=True)
+# ---------------- Lista compacta com ações ----------------
+st.subheader("📚 Categorias")
+if df.empty:
+    st.info("Nenhuma categoria encontrada com os filtros atuais.")
+else:
+    for row in df.to_dict(orient="records"):
+        cid = row["id"]
+        codigo = row["codigo"]
+        nome = row["nome"]
+        tipo = row["tipo"]
 
-# --------------------------------------------------
-# Lista compacta com edição inline
-# --------------------------------------------------
-st.subheader("📚 Lista (editar por linha)")
-st.caption("Dica: edite diretamente na tabela e clique em **Salvar alterações** para persistir.")
+        col1, col2, col3, col4, col5 = st.columns([2, 4, 2, 2, 2])
+        col1.write(f"**{codigo}**")
+        col2.write(nome)
+        col3.write("Despesa" if tipo == "despesa" else "Receita")
 
-# Configuração do editor
-col_config = {
-    "id": st.column_config.TextColumn("ID", disabled=True, help="Identificador interno"),
-    "nome": st.column_config.TextColumn("Nome", help="Nome da categoria"),
-    "tipo": st.column_config.SelectboxColumn(
-        "Tipo", options=["despesa", "receita"], help="Classificação da categoria"
-    ),
-}
+        # Editar
+        editar = col4.button("✏️ Editar", key=f"edit-{cid}")
+        excluir = col5.button("🗑️ Excluir", key=f"del-{cid}")
 
-edited_df = st.data_editor(
-    df,
-    use_container_width=True,
-    hide_index=True,
-    num_rows="fixed",
-    column_config=col_config,
-    key="cats_editor",
-)
+        if editar:
+            with st.form(f"form-edit-{cid}", clear_on_submit=False):
+                e1, e2, e3 = st.columns([2, 4, 2])
+                novo_codigo = e1.number_input("Código", min_value=1, step=1, format="%d", value=int(codigo))
+                novo_nome = e2.text_input("Nome", value=nome)
+                novo_tipo = e3.selectbox("Tipo", ["despesa", "receita"], index=0 if tipo == "despesa" else 1)
+                salvar_ed = st.form_submit_button("Salvar alterações", type="primary")
 
-# Detecta mudanças comparando com df original
-mudou = not edited_df.equals(df)
+            if salvar_ed:
+                # validar código único
+                if any(c for c in cats if c.get("id") != cid and c.get("codigo") == int(novo_codigo)):
+                    st.error(f"Código {novo_codigo} já existe em outra categoria.")
+                elif not (novo_nome or "").strip():
+                    st.error("Nome inválido.")
+                else:
+                    ok = atualizar_categoria(gh, categoria_id=cid, nome=novo_nome, tipo=novo_tipo, codigo=int(novo_codigo))
+                    if ok:
+                        st.success("Categoria atualizada.")
+                        st.rerun()
+                    else:
+                        st.error("Falha ao atualizar.")
 
-btns = st.columns([2, 2, 6])
-salvar_alteracoes = btns[0].button("💾 Salvar alterações", type="primary", disabled=not mudou)
-st.caption("Selecione linhas para excluir em massa.")
+        if excluir:
+            ok = excluir_categoria(gh, cid)
+            if ok:
+                st.success(f"Categoria '{nome}' removida.")
+                st.rerun()
+            else:
+                st.error("Falha ao remover.")
 
-# Seleção de linhas para exclusão
-selected_rows = st.dataframe(
-    edited_df,
-    use_container_width=True,
-    hide_index=True
-)  # apenas visual extra (opcional)
-
-# Para exclusão em massa com IDs, pedimos a lista de IDs selecionados
-ids_para_excluir = st.text_input(
-    "IDs para excluir (separe por vírgula)",
-    placeholder="Ex.: cat-202501011200-1a2b, cat-202501011205-3c4d",
-    help="Copie os IDs das linhas que deseja excluir e cole aqui."
-)
-excluir_em_massa = btns[1].button("🗑️ Excluir selecionados")
-
-# --------------------------------------------------
-# Persistência: salvar alterações
-# --------------------------------------------------
-if salvar_alteracoes:
-    # Constrói mapa por ID e aplica mudanças de edited_df no array original
-    original = cats[:]  # lista de dicts
-    edited_records = edited_df.to_dict(orient="records")
-    by_id = {c["id"]: c for c in original}
-
-    # Validação básica: nome não vazio, tipo válido
-    for r in edited_records:
-        if not (r.get("nome") or "").strip():
-            st.error(f"Nome inválido para ID {r.get('id')}. Operação abortada.")
-            st.stop()
-        if r.get("tipo") not in ("despesa", "receita"):
-            st.error(f"Tipo inválido para ID {r.get('id')}. Operação abortada.")
-            st.stop()
-
-    # Aplica alterações
-    for r in edited_records:
-        if r["id"] in by_id:
-            by_id[r["id"]]["nome"] = r["nome"].strip()
-            by_id[r["id"]]["tipo"] = r["tipo"]
-
-    # Persiste
-    novos_cats = list(by_id.values())
-    new_sha = gh.put_json("data/categorias.json", novos_cats, "Atualiza categorias (edição em lote)", sha=sha)
-    st.cache_data.clear()
-    st.success("Alterações salvas com sucesso.")
-    st.rerun()
-
-# --------------------------------------------------
-# Exclusão em massa
-# --------------------------------------------------
-if excluir_em_massa:
-    ids = [x.strip() for x in (ids_para_excluir or "").split(",") if x.strip()]
-    if not ids:
-        st.warning("Informe ao menos um ID válido, separado por vírgula.")
-    else:
-        # Filtra removendo IDs informados
-        remaining = [c for c in cats if c.get("id") not in ids]
-        if len(remaining) == len(cats):
-            st.info("Nenhum ID informado foi encontrado. Nada a excluir.")
-        else:
-            gh.put_json("data/categorias.json", remaining, f"Remove categorias em massa: {', '.join(ids)}", sha=sha)
-            st.cache_data.clear()
-            st.success(f"Removidas {len(cats) - len(remaining)} categorias.")
-            st.rerun()
-
-st.divider()
-st.caption("Mantenha nomes claros e consistentes para facilitar relatórios.")
+st.caption("Dica: use códigos numéricos para facilitar a identificação rápida. Ex.: 101 Supermercado, 201 Internet.")
