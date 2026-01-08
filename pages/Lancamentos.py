@@ -162,7 +162,11 @@ with st.form("nova_tx"):
     c1, c2, c3, c4 = st.columns([2, 1, 2, 2])
     tipo = c1.selectbox("Tipo", ["despesa", "receita"])
     valor = c2.number_input("Valor (R$)", min_value=0.01, step=0.01)
+
+    # ✅ Date picker + caption BR
     data_prev = c3.date_input("Data prevista", value=date.today())
+    c3.caption(f"Selecionada: **{fmt_date_br(data_prev)}**")
+
     conta_nome = c4.selectbox("Conta", options=list(conta_map.values()))
 
     d1, d2 = st.columns([2, 2])
@@ -260,8 +264,11 @@ else:
                 e1, e2, e3 = st.columns(3)
                 novo_tipo = e1.selectbox("Tipo", ["despesa", "receita"], index=["despesa", "receita"].index(alvo.get("tipo", "despesa")))
                 novo_valor = e2.number_input("Valor (R$)", min_value=0.01, step=0.01, value=float(alvo.get("valor", 0.0)))
-                # date_input mostra em UI; persistimos como ISO
-                nova_prev = e3.date_input("Data prevista", value=pd.to_datetime(alvo.get("data_prevista")).date() if alvo.get("data_prevista") else date.today())
+
+                # ✅ Date picker + caption BR
+                prev_val = pd.to_datetime(alvo.get("data_prevista")).date() if alvo.get("data_prevista") else date.today()
+                nova_prev = e3.date_input("Data prevista", value=prev_val)
+                e3.caption(f"Selecionada: **{fmt_date_br(nova_prev)}**")
 
                 e4 = st.text_input("Descrição", value=alvo.get("descricao", ""))
                 limpar_pagamento = st.checkbox("Estornar (remover pagamento)?", value=False)
