@@ -1,26 +1,26 @@
+
 # pages/Usuarios.py
 import streamlit as st
-from services.app_context import get_context
-from services.data_loader import load_all
+from services.app_context import get_config, get_context
+from services.data_loader import load_users
 from services.permissions import require_admin
 from services.finance_core import novo_id
+from services.utils import save_json_and_refresh
 
 st.set_page_config(page_title="Usuários", page_icon="👥", layout="wide")
 st.title("👥 Usuários")
-from services.app_context import init_context, get_context
 
-init_context()
-ctx = get_context()
-if not ctx.get("connected"):
+cfg = get_config()
+if not cfg.connected:
     st.warning("Conecte ao GitHub na página principal.")
     st.stop()
-require_admin(ctx)
+require_admin(cfg)
 
+ctx = get_context()
 gh = ctx.get("gh")
-data = load_all((ctx["repo_full_name"], ctx["branch_name"]))
-usuarios_map = data.get("data/usuarios.json", {"content": [], "sha": None})
-usuarios = [u for u in usuarios_map.get("content", []) if isinstance(u, dict)]
-sha = usuarios_map.get("sha")
+users_map = load_users((cfg.repo_full_name, cfg.branch_name))
+usuarios = [u for u in users_map.get("content", []) if isinstance(u, dict)]
+sha = users_map.get("sha")
 
 st.subheader("➕ Cadastrar novo usuário")
 with st.form("novo_usuario"):
@@ -33,10 +33,7 @@ with st.form("novo_usuario"):
             st.error("Informe um nome válido.")
         else:
             usuarios.append({"id": novo_id("u"), "nome": nome.strip(), "perfil": perfil, "ativo": ativo})
-            gh.put_json("data/usuarios.json", usuarios, "Novo usuário", sha=sha)
-            st.cache_data.clear()
-            st.success(f"Usuário '{nome}' adicionado.")
-            st.rerun()
+            save_json_and_refresh(gh, "data/usuarios.json", usuarios, "Novo usuário", sha)
 
 st.divider()
 st.subheader("📚 Lista de usuários")
@@ -54,18 +51,10 @@ for u in usuarios:
         novo_ativo = st.checkbox("Ativo", value=bool(u.get("ativo", True)), key=f"u-ativo-{u['id']}")
     with col4:
         if st.button("Salvar", key=f"u-salvar-{u['id']}"):
-            # Atualiza em memória
             u["nome"] = (novo_nome or "").strip()
             u["perfil"] = novo_perfil
             u["ativo"] = bool(novo_ativo)
-            # Persiste
-            gh.put_json("data/usuarios.json", usuarios, f"Atualiza usuário: {u['id']}", sha=sha)
-            st.cache_data.clear()
-            st.success("Alterações salvas.")
-            st.rerun()
+            save_json_and_refresh(gh, "data/usuarios.json", usuarios, f"Atualiza usuário: {u['id']}", sha)
         if st.button("Excluir", key=f"u-excluir-{u['id']}"):
             usuarios = [x for x in usuarios if x.get("id") != u["id"]]
-            gh.put_json("data/usuarios.json", usuarios, f"Remove usuário: {u['id']}", sha=sha)
-            st.cache_data.clear()
-            st.success("Usuário removido.")
-            st.rerun()
+            save_json_and_refresh(gh, "data/usuarios.json", usuarios, f"Remove usuário: {u['id']}", sha)
