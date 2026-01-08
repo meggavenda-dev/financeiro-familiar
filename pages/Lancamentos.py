@@ -4,7 +4,7 @@ import streamlit as st
 import pandas as pd
 from datetime import date, datetime
 
-from services.app_context import get_context
+from services.app_context import init_context, get_context
 from services.data_loader import load_all
 from services.permissions import require_admin
 from services.finance_core import (
@@ -19,6 +19,7 @@ from services.finance_core import (
 )
 from services.status import status_badge, derivar_status
 from services.competencia import competencia_from_date, label_competencia
+from services.utils import fmt_brl, clear_cache_and_rerun
 
 # --------------------------------------------------
 # Página
@@ -29,21 +30,19 @@ st.title("🧾 Lançamentos")
 # --------------------------------------------------
 # Contexto / Permissões
 # --------------------------------------------------
-from services.app_context import init_context, get_context
-
 init_context()
 ctx = get_context()
-if not ctx.connected:
+if not ctx.get("connected"):
     st.warning("Conecte ao GitHub na página principal.")
     st.stop()
 
 require_admin(ctx)
-gh = ctx.gh
+gh = ctx.get("gh")
 
 # --------------------------------------------------
 # Carregamento
 # --------------------------------------------------
-data = load_all((ctx.repo_full_name, ctx.branch_name))
+data = load_all((ctx["repo_full_name"], ctx["branch_name"]))
 
 trans_map = data["data/transacoes.json"]
 transacoes = [
@@ -55,9 +54,6 @@ sha_trans = trans_map["sha"]
 categorias = data.get("data/categorias.json", {"content": []})["content"]
 contas = data.get("data/contas.json", {"content": []})["content"]
 orcamentos = data.get("data/orcamentos.json", {"content": []})["content"]
-
-def fmt_brl(v: float) -> str:
-    return f"R$ {v:,.2f}".replace(",", "X").replace(".", ",").replace("X", ".")
 
 def cat_opts():
     return {c.get("id"): c.get("nome") for c in categorias} or {"cat1": "Geral"}
@@ -87,7 +83,6 @@ busca_texto = colf2.text_input("Buscar por descrição")
 def filtrar_por_comp(ds):
     out = []
     for d in ds:
-        # usa data_prevista como referência de competência
         dt_str = d.get("data_prevista") or d.get("data_efetiva")
         if not dt_str:
             continue
@@ -111,7 +106,7 @@ st.subheader(f"📅 Resumo — {label_competencia(comp_select)}")
 def soma(ds, tipo=None, status=None):
     total = 0.0
     for x in ds:
-        if tipo and x.get("tipo") != tipo: 
+        if tipo and x.get("tipo") != tipo:
             continue
         st_calc = derivar_status(x.get("data_prevista"), x.get("data_efetiva"))
         if status and st_calc != status:
@@ -179,18 +174,12 @@ if salvar_btn:
         pars = gerar_parcelas(base, int(qtd_parc))
         for p in pars:
             criar(transacoes, p)
-        new_sha = gh.put_json("data/transacoes.json", transacoes, f"Add {qtd_parc} parcelas", sha=sha_trans)
-        sha_trans = new_sha
-        st.cache_data.clear()
-        st.success("✅ Parcelas adicionadas.")
-        st.rerun()
+        gh.put_json("data/transacoes.json", transacoes, f"Add {qtd_parc} parcelas", sha=sha_trans)
+        clear_cache_and_rerun()
     else:
         criar(transacoes, base)
-        new_sha = gh.put_json("data/transacoes.json", transacoes, "Add transação", sha=sha_trans)
-        sha_trans = new_sha
-        st.cache_data.clear()
-        st.success("✅ Transação adicionada.")
-        st.rerun()
+        gh.put_json("data/transacoes.json", transacoes, "Add transação", sha=sha_trans)
+        clear_cache_and_rerun()
 
 # --------------------------------------------------
 # Lista por competência (com ações)
@@ -228,17 +217,15 @@ else:
         if alvo_del:
             ok = excluir(transacoes, alvo_del["id"])
             if ok:
-                new_sha = gh.put_json("data/transacoes.json", transacoes, f"Exclui {alvo_del['id']}", sha=sha_trans)
-                sha_trans = new_sha
-                st.cache_data.clear(); st.rerun()
+                gh.put_json("data/transacoes.json", transacoes, f"Exclui {alvo_del['id']}", sha=sha_trans)
+                clear_cache_and_rerun()
             else:
                 st.error("Não foi possível excluir.")
         elif alvo_pay:
             baixar(alvo_pay)
             atualizar(transacoes, alvo_pay)
-            new_sha = gh.put_json("data/transacoes.json", transacoes, f"Baixa {alvo_pay['id']}", sha=sha_trans)
-            sha_trans = new_sha
-            st.cache_data.clear(); st.rerun()
+            gh.put_json("data/transacoes.json", transacoes, f"Baixa {alvo_pay['id']}", sha=sha_trans)
+            clear_cache_and_rerun()
         elif alvo_edit:
             st.markdown(f"#### Editando {alvo_edit.get('id')} — {alvo_edit.get('descricao','')}")
             with st.form("editar_item"):
@@ -263,9 +250,8 @@ else:
                     "atualizado_em": datetime.now().isoformat(),
                 })
                 atualizar(transacoes, item_editado)
-                new_sha = gh.put_json("data/transacoes.json", transacoes, f"Edita {alvo_edit.get('id')}", sha=sha_trans)
-                sha_trans = new_sha
-                st.cache_data.clear(); st.rerun()
+                gh.put_json("data/transacoes.json", transacoes, f"Edita {alvo_edit.get('id')}", sha=sha_trans)
+                clear_cache_and_rerun()
         else:
             st.info("Informe um ID válido para editar, excluir ou pagar.")
 
@@ -279,7 +265,6 @@ st.subheader("💰 Orçamento mensal por categoria")
 if not orcamentos:
     st.info("Nenhum orçamento cadastrado em data/orcamentos.json.")
 else:
-    # mapa nomes categoria
     cat_names = {c.get("id"): c.get("nome") for c in categorias}
     gastos_cat = {}
     for it in mes_itens:
@@ -304,4 +289,3 @@ else:
     if estouradas:
         nomes = ", ".join(r["Categoria"] for r in estouradas)
         st.error(f"🔔 Orçamento estourado: {nomes}")
-
