@@ -1,3 +1,4 @@
+
 # app.py
 import sys
 from pathlib import Path
@@ -27,14 +28,15 @@ from services.ui import section
 # -------------------------------------------------
 # Configuração da página (MOBILE-FIRST)
 # -------------------------------------------------
+# ✅ Mantemos em 'wide' para o desktop — evita truncamento de métricas
 st.set_page_config(
-    page_title="Visão Geral",          # ✅ ALTERADO
+    page_title="Visão Geral",
     page_icon="💰",
-    layout="centered",
+    layout="wide",
     initial_sidebar_state="collapsed",
 )
 
-st.title("📊 Visão Geral")             # ✅ ALTERADO
+st.title("📊 Visão Geral")
 st.caption("Dashboard inteligente de saúde financeira familiar")
 
 # -------------------------------------------------
@@ -213,17 +215,23 @@ def render_kpis(items, desktop_cols=4, mobile_cols=1):
             col.metric(label, value)
 
 # -------------------------------------------------
-# KPIs — Realizado
+# KPIs — Realizado (ajuste para não cortar no desktop)
 # -------------------------------------------------
 section("📊 Resultado do mês")
 
-kpis_realizado = [
+# ✅ Primeira linha com 3 métricas lado a lado (largura suficiente em 'wide')
+kpis_realizado_row1 = [
     ("Receitas realizadas", fmt_brl(rec_real), f"{fmt_date_br(inicio)} → {fmt_date_br(hoje)}"),
     ("Despesas realizadas", fmt_brl(des_real), f"{fmt_date_br(inicio)} → {fmt_date_br(hoje)}"),
     ("Saldo realizado", fmt_brl(saldo_real)),
+]
+render_kpis(kpis_realizado_row1, desktop_cols=3, mobile_cols=1)
+
+# ✅ Segunda linha com 'Saldo total' em largura total (sem truncamento)
+kpis_realizado_row2 = [
     ("Saldo total", fmt_brl(saldo_total), "Saldo inicial + transações efetivadas"),
 ]
-render_kpis(kpis_realizado, desktop_cols=4, mobile_cols=1)
+render_kpis(kpis_realizado_row2, desktop_cols=1, mobile_cols=1)
 
 # -------------------------------------------------
 # KPIs — Planejamento (mês inteiro)
