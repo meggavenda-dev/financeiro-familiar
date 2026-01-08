@@ -53,5 +53,10 @@
     "id": "cat-20260108021815-3e78",
     "nome": "Cartão de Crédito",
     "tipo": "despesa"
+  },
+  {
+    "id": "cat-20260108021828-1e1e",
+    "nome": "Financiamento",
+    "tipo": "despesa"
   }
 ]
