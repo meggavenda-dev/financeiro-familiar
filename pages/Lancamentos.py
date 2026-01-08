@@ -3,7 +3,7 @@
 import streamlit as st
 import pandas as pd
 from datetime import date, datetime
-from typing import Optional  # CHANGE: compatibilidade Python 3.9
+from typing import Optional  # compatibilidade Python 3.9
 
 from services.app_context import init_context, get_context
 from services.data_loader import load_all
@@ -16,6 +16,7 @@ from services.finance_core import (
     gerar_parcelas,
     normalizar_tx,
     baixar,
+    estornar,  # CHANGE: adicionar estorno
 )
 from services.status import derivar_status, status_badge
 from services.competencia import competencia_from_date, label_competencia
@@ -74,6 +75,7 @@ def cat_opts():
 def conta_opts():
     return {c.get("id"): c.get("nome") for c in contas} or {"c1": "Conta Principal"}
 
+
 # --------------------------------------------------
 # Filtros de competência e texto
 # --------------------------------------------------
@@ -120,6 +122,7 @@ def filtrar_por_comp(ds):
 
 mes_itens = filtrar_por_comp(transacoes)
 
+
 # --------------------------------------------------
 # Resumo Mensal (por tipo e status)
 # --------------------------------------------------
@@ -158,6 +161,7 @@ l3c1.metric("📥 Receitas vencidas (mês)", fmt_brl(rec_vencidas))
 l3c2.metric("💸 Despesas vencidas (mês)", fmt_brl(des_vencidas))
 
 st.divider()
+
 
 # --------------------------------------------------
 # Cadastro — novo / parcelado (data BR texto + validação)
@@ -225,6 +229,7 @@ if salvar_btn:
             gh.put_json("data/transacoes.json", transacoes, f"[{usuario}] Add transação", sha=sha_trans)
             clear_cache_and_rerun()
 
+
 # --------------------------------------------------
 # Lista por competência — tabela compacta com Código + ações por linha
 # --------------------------------------------------
@@ -284,15 +289,16 @@ else:
         if not alvo:
             continue
 
-        c1, c2, c3, c4, c5 = st.columns([2, 4, 2, 2, 3])
+        c1, c2, c3, c4, c5 = st.columns([2, 4, 2, 2, 4])  # CHANGE: espaço maior para dois botões
         c1.write(f"**{r_code}**")
         c2.write(f"{row['Descrição']}")
         c3.write(fmt_brl(float(row["valor"])))
         c4.write(row["Status"])
 
-        # CHANGE: desabilitar pelo status lógico, não por emoji
+        # CHANGE: desabilitar pelo status lógico, não por emoji + adicionar botão de estorno
         is_paga = (derivar_status(alvo.get("data_prevista"), alvo.get("data_efetiva")) == "paga")
         pagar_btn = c5.button("Marcar como paga/recebida", key=key_for("pay", r_id), disabled=is_paga)
+        estornar_btn = c5.button("Estornar pagamento", key=key_for("undo-pay", r_id), disabled=(not is_paga))  # CHANGE
 
         editar_exp = st.expander(f"Editar — {r_code}", expanded=False)
         excluir_btn = st.button("Excluir", key=key_for("del", r_id))
@@ -301,6 +307,12 @@ else:
             baixar(alvo)
             atualizar(transacoes, alvo)
             gh.put_json("data/transacoes.json", transacoes, f"[{usuario}] Baixa {r_id}", sha=sha_trans)
+            clear_cache_and_rerun()
+
+        if estornar_btn:
+            estornar(alvo)
+            atualizar(transacoes, alvo)
+            gh.put_json("data/transacoes.json", transacoes, f"[{usuario}] Estorno {r_id}", sha=sha_trans)
             clear_cache_and_rerun()
 
         with editar_exp:
@@ -364,15 +376,15 @@ else:
         cid = o.get("categoria_id")
         limite = float(o.get("limite_mensal", 0.0))
         gasto = float(gastos_cat.get(cid, 0.0))
-        uso = (gasto / limite) if limite > 0 else 0.0
+        uso = (gasto / limite) if limite > 0 else 0.0  # CHANGE: remove &gt;
         rows.append({
             "Categoria": cat_names.get(cid, cid),
             "Limite": fmt_brl(limite),
             "Gasto": fmt_brl(gasto),
             "% Uso": f"{uso*100:.1f}%",
             "Status": (
-                "🔴 Estourado" if limite > 0 and gasto > limite
-                else ("🟡 Próximo" if uso >= 0.8 else "🟢 OK")
+                "🔴 Estourado" if limite > 0 and gasto > limite         # CHANGE: remove &gt;
+                else ("🟡 Próximo" if uso >= 0.8 else "🟢 OK")           # CHANGE: remove &gt;=
             ),
         })
     st.dataframe(pd.DataFrame(rows), use_container_width=True)
