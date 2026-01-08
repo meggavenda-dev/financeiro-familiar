@@ -1,11 +1,10 @@
-
 # app.py
 import streamlit as st
 import pandas as pd
 from datetime import date
 
 from services.app_context import get_context, init_context
-from services.data_loader import load_all
+from services.data_loader import load_all, listar_categorias
 from services.finance_core import normalizar_tx, saldo_atual
 from services.status import derivar_status
 
@@ -24,26 +23,26 @@ ctx = get_context()
 
 with st.sidebar:
     st.header("🔧 Conexão")
-    st.text_input("Repositório (owner/repo)", key="repo_full_name", value=ctx.repo_full_name or "")
-    st.text_input("GitHub Token", key="github_token", type="password", value=ctx.github_token or "")
-    st.text_input("Branch", key="branch_name", value=ctx.branch_name or "main")
+    st.text_input("Repositório (owner/repo)", key="repo_full_name", value=ctx["repo_full_name"] or "")
+    st.text_input("GitHub Token", key="github_token", type="password", value=ctx["github_token"] or "")
+    st.text_input("Branch", key="branch_name", value=ctx["branch_name"] or "main")
 
     if st.button("Conectar"):
         from github_service import GitHubService
         try:
-            ctx.gh = GitHubService(
-                token=st.session_state.github_token,
-                repo_full_name=st.session_state.repo_full_name,
-                branch=st.session_state.branch_name
+            ctx["gh"] = GitHubService(
+                token=st.session_state["github_token"],
+                repo_full_name=st.session_state["repo_full_name"],
+                branch=st.session_state["branch_name"]
             )
-            ctx.connected = True
+            ctx["connected"] = True
             st.cache_data.clear()
             st.success("✅ Conectado ao GitHub")
             st.rerun()
         except Exception as e:
             st.error(f"Erro ao conectar: {e}")
 
-    if not ctx.connected:
+    if not ctx.get("connected"):
         st.warning("Conecte ao GitHub para continuar.")
         st.stop()
 
@@ -54,9 +53,9 @@ with st.sidebar:
 # -------------------------------------------------
 # Dados
 # -------------------------------------------------
-data = load_all((ctx.repo_full_name, ctx.branch_name))
+data = load_all((ctx["repo_full_name"], ctx["branch_name"]))
 
-# ✅ IMPORTANTE: filtrar None (normalizar_tx agora é defensiva)
+# ✅ Normalização defensiva
 transacoes = [
     t for t in (normalizar_tx(x) for x in data["data/transacoes.json"]["content"])
     if t is not None
@@ -71,7 +70,6 @@ inicio = date(hoje.year, hoje.month, 1)
 
 df = pd.DataFrame(transacoes)
 if not df.empty:
-    # coluna de referência de data: usa efetiva, senão prevista
     df["data_ref"] = pd.to_datetime(
         df["data_efetiva"].fillna(df["data_prevista"]),
         errors="coerce"
@@ -113,3 +111,15 @@ if not df.empty:
     st.line_chart(saldo_diario)
 else:
     st.info("Sem dados suficientes para gerar gráfico.")
+
+st.divider()
+st.subheader("🧩 Despesas por categoria (mês)")
+if not df.empty:
+    cats, _ = listar_categorias(ctx["gh"])
+    cat_map = {c["id"]: c["nome"] for c in cats}
+    despesas_df = df[df["tipo"] == "despesa"].copy()
+    despesas_df["categoria_nome"] = despesas_df["categoria_id"].map(cat_map).fillna("Sem categoria")
+    agg = despesas_df.groupby("categoria_nome")["valor"].sum().sort_values(ascending=False)
+    st.bar_chart(agg)
+else:
+    st.info("Sem despesas no período para agrupar por categoria.")
