@@ -6,7 +6,7 @@ import pandas as pd
 
 from services.app_context import init_context, get_context
 from services.data_loader import load_all
-from services.utils import fmt_brl
+from services.utils import fmt_brl, fmt_date_br
 
 # --------------------------------------------------
 # Configuração da página
@@ -123,7 +123,7 @@ for meta in metas:
     nome_meta = (meta.get("nome") or "Meta").strip()
     valor_meta = meta.get("valor_meta", 0.0)
     valor_atual = meta.get("valor_atual", 0.0)
-    data_limite = meta.get("data_meta", "—")
+    data_limite = meta.get("data_meta", None)
 
     col1, col2 = st.columns([3, 2])
 
@@ -135,7 +135,7 @@ for meta in metas:
 
         st.write(f"🎯 Meta: **{fmt_brl(valor_meta)}**")
         st.write(f"💰 Acumulado: **{fmt_brl(valor_atual)}**")
-        st.write(f"📅 Data limite: **{data_limite}**")
+        st.write(f"📅 Data limite: **{fmt_date_br(data_limite)}**")
 
     with col2:
         aporte = calc_aporte(meta)
@@ -145,7 +145,7 @@ for meta in metas:
             st.metric(
                 "Aporte mensal sugerido",
                 fmt_brl(aporte),
-                help=f"Baseado em {meses} meses restantes"
+                help=f"Baseado em {meses} mês(es) restante(s)"
             )
         else:
             st.success("🎉 Meta atingida ou sem necessidade de aporte.")
