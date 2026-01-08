@@ -1,4 +1,3 @@
-
 # services/data_loader.py
 import streamlit as st
 from services.app_context import get_context
@@ -175,10 +174,14 @@ def load_all(cache_key: tuple):
     - Sanitiza transacoes.json e metas.json (remove itens inválidos que não sejam dict).
     """
     ctx = get_context()
-    if not ctx.connected:
+
+    # ctx é um dict (st.session_state). Use .get ou indexação por chave.
+    if not ctx.get("connected"):
         raise RuntimeError("Não conectado ao GitHub. Informe repositório e token na barra lateral.")
 
-    gh = ctx.gh
+    gh = ctx.get("gh")
+    if gh is None:
+        raise RuntimeError("GitHubService não está inicializado.")
 
     # Carrega todos os arquivos assegurando existência (create-if-missing)
     data = {}
