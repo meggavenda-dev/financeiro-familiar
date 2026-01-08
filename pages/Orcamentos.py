@@ -6,163 +6,229 @@ import pandas as pd
 from services.app_context import init_context, get_context
 from services.data_loader import load_all, listar_categorias
 from services.permissions import require_admin
-from services.utils import fmt_brl
+from services.utils import fmt_brl, key_for   # CHANGE
 from services.finance_core import novo_id
 
-st.set_page_config(page_title="Orçamentos", page_icon="📊", layout="wide")
+st.set_page_config(
+    page_title="Orçamentos",
+    page_icon="📊",
+    layout="wide",
+)
 st.title("📊 Orçamentos por Categoria")
 
+# --------------------------------------------------
+# Contexto / Permissões
+# --------------------------------------------------
 init_context()
 ctx = get_context()
+
 if not ctx.get("connected"):
     st.warning("Conecte ao GitHub na página principal.")
     st.stop()
+
 require_admin(ctx)
 
 gh = ctx.get("gh")
+usuario = ctx.get("usuario_id", "u1")
+
+# --------------------------------------------------
+# Carregamento
+# --------------------------------------------------
 data = load_all((ctx["repo_full_name"], ctx["branch_name"]))
 
 orc_map = data.get("data/orcamentos.json", {"content": [], "sha": None})
-orcamentos_raw = orc_map.get("content", [])
+orcamentos = [o for o in orc_map.get("content", []) if isinstance(o, dict)]
 sha = orc_map.get("sha")
 
 cats, _ = listar_categorias(gh)
 cat_map = {c["id"]: c["nome"] for c in cats}
-cat_names = list(cat_map.values())
 inv_cat = {v: k for k, v in cat_map.items()}
+cat_names = list(inv_cat.keys())
 
-# Sanitização defensiva: garante 'id' e campos
-orcamentos: list[dict] = []
+# --------------------------------------------------
+# Sanitização defensiva (sem commit se não mudou)
+# --------------------------------------------------
 changed = False
-for o in orcamentos_raw:
-    if not isinstance(o, dict):
-        changed = True
-        continue
+clean = []
+
+for o in orcamentos:
     oid = o.get("id") or novo_id("o")
-    categoria_id = o.get("categoria_id")
     try:
-        limite_mensal = float(o.get("limite_mensal", 0.0))
+        limite = float(o.get("limite_mensal", 0))
     except Exception:
-        limite_mensal = 0.0
-    ativo = bool(o.get("ativo", True))
-    orcamentos.append({
+        limite = 0.0
+
+    item = {
         "id": oid,
-        "categoria_id": categoria_id,
-        "limite_mensal": limite_mensal,
-        "ativo": ativo,
-    })
+        "categoria_id": o.get("categoria_id"),
+        "limite_mensal": limite,
+        "ativo": bool(o.get("ativo", True)),
+    }
+
     if o.get("id") is None:
         changed = True
 
-if changed:
-    new_sha = gh.put_json("data/orcamentos.json", orcamentos, "Sanitiza orcamentos.json (garante 'id' e campos)", sha=sha)
-    sha = new_sha
-    st.cache_data.clear()
+    clean.append(item)
 
-# Nova categoria de orçamento
+if changed:
+    sha = gh.put_json(
+        "data/orcamentos.json",
+        clean,
+        f"[{usuario}] Sanitiza orcamentos.json",
+        sha=sha,
+    )
+    st.cache_data.clear()
+    orcamentos = clean
+
+# --------------------------------------------------
+# Novo orçamento
+# --------------------------------------------------
 st.subheader("➕ Cadastrar orçamento")
+
 with st.form("novo_orc"):
     col1, col2 = st.columns([3, 2])
-    if not cat_names:
-        st.info("Nenhuma categoria encontrada. Cadastre categorias na página **Categorias**.")
-    categoria_nome = col1.selectbox("Categoria", options=cat_names if cat_names else ["—"])
-    limite = col2.number_input("Limite mensal (R$)", min_value=0.01, step=0.01)
-    salvar_btn = st.form_submit_button("Salvar")
 
-    if salvar_btn:
-        if categoria_nome not in inv_cat:
-            st.error("Categoria inválida. Verifique a lista de categorias.")
+    categoria = col1.selectbox(
+        "Categoria",
+        options=cat_names if cat_names else ["—"],
+    )
+
+    limite = col2.number_input(
+        "Limite mensal (R$)",
+        min_value=0.01,
+        step=0.01,
+    )
+
+    salvar = st.form_submit_button("Salvar")
+
+    if salvar:
+        if categoria not in inv_cat:
+            st.error("Categoria inválida.")
         else:
             orcamentos.append({
                 "id": novo_id("o"),
-                "categoria_id": inv_cat.get(categoria_nome),
+                "categoria_id": inv_cat[categoria],
                 "limite_mensal": float(limite),
                 "ativo": True,
             })
-            gh.put_json("data/orcamentos.json", orcamentos, "Novo orçamento", sha=sha)
+            gh.put_json(
+                "data/orcamentos.json",
+                orcamentos,
+                f"[{usuario}] Novo orçamento: {categoria}",
+                sha=sha,
+            )
             st.cache_data.clear()
             st.success("Orçamento cadastrado.")
             st.rerun()
 
 st.divider()
 
+# --------------------------------------------------
 # Filtros
+# --------------------------------------------------
 st.subheader("🔍 Filtros")
+
 f1, f2 = st.columns([3, 2])
 filtro_texto = f1.text_input("Buscar por categoria")
-filtro_ativo = f2.selectbox("Status", ["todos", "ativos", "inativos"], index=0)
+filtro_status = f2.selectbox("Status", ["todos", "ativos", "inativos"])
 
+# --------------------------------------------------
 # Listagem
+# --------------------------------------------------
 st.subheader("📚 Orçamentos cadastrados")
-if not orcamentos:
-    st.info("Nenhum orçamento cadastrado.")
+
+def ativo(o): 
+    return bool(o.get("ativo", True))
+
+filtered = []
+for o in orcamentos:
+    nome = cat_map.get(o.get("categoria_id"), "Sem categoria")
+    if filtro_texto and filtro_texto.lower() not in nome.lower():
+        continue
+    if filtro_status == "ativos" and not ativo(o):
+        continue
+    if filtro_status == "inativos" and ativo(o):
+        continue
+    filtered.append(o)
+
+if not filtered:
+    st.info("Nenhum orçamento encontrado.")
 else:
-    filtered = []
-    for o in orcamentos:
-        nome_cat = cat_map.get(o.get("categoria_id"), o.get("categoria_id") or "Sem categoria")
-        if filtro_texto:
-            s = filtro_texto.strip().lower()
-            if s not in str(nome_cat).lower():
-                continue
-        if filtro_ativo == "ativos" and not bool(o.get("ativo", True)):
-            continue
-        if filtro_ativo == "inativos" and bool(o.get("ativo", True)):
-            continue
-        filtered.append(o)
+    rows = [{
+        "ID": o["id"],
+        "Categoria": cat_map.get(o["categoria_id"], "Sem categoria"),
+        "Limite Mensal": fmt_brl(o["limite_mensal"]),
+        "Ativo": ativo(o),
+    } for o in filtered]
 
-    if not filtered:
-        st.info("Nenhum orçamento encontrado com os filtros atuais.")
-    else:
-        rows = []
-        for o in filtered:
-            rows.append({
-                "ID": o.get("id", "—"),
-                "Categoria": cat_map.get(o.get("categoria_id"), o.get("categoria_id") or "Sem categoria"),
-                "Limite Mensal": fmt_brl(o.get("limite_mensal", 0.0)),
-                "Ativo": bool(o.get("ativo", True)),
-            })
-        df_view = pd.DataFrame(rows)
-        st.dataframe(df_view, use_container_width=True)
+    df = pd.DataFrame(rows)
+    st.dataframe(df, use_container_width=True)
 
-        csv_bytes = df_view.to_csv(index=False).encode("utf-8")
-        st.download_button("📤 Exportar CSV", data=csv_bytes, file_name="orcamentos.csv", mime="text/csv")
+    csv = df.to_csv(index=False).encode("utf-8")
+    st.download_button(
+        "📤 Exportar CSV",
+        data=csv,
+        file_name="orcamentos.csv",
+        mime="text/csv",
+    )
 
-        st.divider()
-        st.subheader("✏️ Editar / Excluir")
+    st.divider()
+    st.subheader("✏️ Editar / Excluir")
 
-        for o in filtered:
-            oid = o.get("id", novo_id("o"))
-            cid = o.get("categoria_id")
-            cat_atual = cat_map.get(cid, "—")
+    for o in filtered:
+        oid = o["id"]
+        nome_cat = cat_map.get(o["categoria_id"], "—")
+        idx = cat_names.index(nome_cat) if nome_cat in cat_names else 0
 
-            if cat_names and cat_atual in cat_names:
-                idx = cat_names.index(cat_atual)
-            else:
-                idx = 0
+        c1, c2, c3, c4 = st.columns([4, 2, 2, 2])
 
-            c1, c2, c3, c4 = st.columns([4, 2, 2, 2])
-            with c1:
-                novo_cat = st.selectbox("Categoria", options=cat_names if cat_names else ["—"], index=idx, key=f"orc-cat-{oid}")
-            with c2:
-                novo_lim = st.number_input("Limite (R$)", min_value=0.01, step=0.01, value=float(o.get("limite_mensal", 0.0)), key=f"orc-lim-{oid}")
-            with c3:
-                novo_ativo = st.checkbox("Ativo", value=bool(o.get("ativo", True)), key=f"orc-ativo-{oid}")
-            with c4:
-                if st.button("Salvar", key=f"orc-save-{oid}"):
-                    if novo_cat not in inv_cat:
-                        st.error("Categoria inválida. Verifique a lista de categorias.")
-                    else:
-                        o["categoria_id"] = inv_cat.get(novo_cat, cid)
-                        o["limite_mensal"] = float(novo_lim)
-                        o["ativo"] = bool(novo_ativo)
-                        gh.put_json("data/orcamentos.json", orcamentos, f"Atualiza orçamento {oid}", sha=sha)
-                        st.cache_data.clear()
-                        st.success("Orçamento atualizado.")
-                        st.rerun()
+        with c1:
+            novo_cat = st.selectbox(
+                "Categoria",
+                options=cat_names,
+                index=idx,
+                key=key_for("cat", oid),
+            )
 
-                if st.button("Excluir", key=f"orc-del-{oid}"):
-                    orcamentos = [x for x in orcamentos if x.get("id") != oid]
-                    gh.put_json("data/orcamentos.json", orcamentos, f"Remove orçamento {oid}", sha=sha)
-                    st.cache_data.clear()
-                    st.success("Orçamento removido.")
-                    st.rerun()
+        with c2:
+            novo_lim = st.number_input(
+                "Limite (R$)",
+                min_value=0.01,
+                step=0.01,
+                value=float(o["limite_mensal"]),
+                key=key_for("lim", oid),
+            )
+
+        with c3:
+            novo_ativo = st.checkbox(
+                "Ativo",
+                value=ativo(o),
+                key=key_for("ativo", oid),
+            )
+
+        with c4:
+            if st.button("Salvar", key=key_for("save", oid)):
+                o["categoria_id"] = inv_cat.get(novo_cat)
+                o["limite_mensal"] = float(novo_lim)
+                o["ativo"] = bool(novo_ativo)
+                gh.put_json(
+                    "data/orcamentos.json",
+                    orcamentos,
+                    f"[{usuario}] Atualiza orçamento {oid}",
+                    sha=sha,
+                )
+                st.cache_data.clear()
+                st.success("Orçamento atualizado.")
+                st.rerun()
+
+            if st.button("Excluir", key=key_for("del", oid)):
+                orcamentos = [x for x in orcamentos if x.get("id") != oid]
+                gh.put_json(
+                    "data/orcamentos.json",
+                    orcamentos,
+                    f"[{usuario}] Remove orçamento {oid}",
+                    sha=sha,
+                )
+                st.cache_data.clear()
+                st.success("Orçamento removido.")
+                st.rerun()
