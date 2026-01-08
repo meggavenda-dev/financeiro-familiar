@@ -74,7 +74,7 @@ if default_comp not in competencias:
 competencias = sorted(set(competencias), reverse=True)
 
 st.subheader("🔍 Filtros")
-colf1, colf2, colf3 = st.columns([2,2,2])
+colf1, colf2, colf3 = st.columns([2, 2, 2])
 comp_select = colf1.selectbox("Competência (mês)", options=competencias,
                               format_func=label_competencia, index=0)
 busca_texto = colf2.text_input("Buscar por descrição")
@@ -102,31 +102,49 @@ def filtrar_por_comp(ds):
 mes_itens = filtrar_por_comp(transacoes)
 
 # --------------------------------------------------
-# Resumo Mensal
+# Resumo Mensal (clarificado por tipo e status)
 # --------------------------------------------------
 st.subheader(f"📅 Resumo — {label_competencia(comp_select)}")
 
-def soma(ds, tipo=None, status=None):
+def soma_por_tipo_e_status(ds, tipo: str, status: str | None = None) -> float:
     total = 0.0
     for x in ds:
-        if tipo and x.get("tipo") != tipo:
+        if x.get("tipo") != tipo:
             continue
         st_calc = derivar_status(x.get("data_prevista"), x.get("data_efetiva"))
-        if status and st_calc != status:
+        if status is not None and st_calc != status:
             continue
         total += float(x.get("valor", 0.0))
     return total
 
-total_receitas = soma(mes_itens, tipo="receita")
-total_despesas = soma(mes_itens, tipo="despesa")
-total_pago = soma(mes_itens, status="paga")
-total_vencido = soma(mes_itens, status="vencida")
+# Pagas
+rec_pagas = soma_por_tipo_e_status(mes_itens, tipo="receita", status="paga")
+des_pagas = soma_por_tipo_e_status(mes_itens, tipo="despesa", status="paga")
 
-kc1, kc2, kc3, kc4 = st.columns(4)
-kc1.metric("📥 Receitas (mês)", fmt_brl(total_receitas))
-kc2.metric("💸 Despesas (mês)", fmt_brl(total_despesas))
-kc3.metric("✅ Pago", fmt_brl(total_pago))
-kc4.metric("🔴 Vencido", fmt_brl(total_vencido))
+# Em aberto (não pagas, dentro da competência)
+total_rec = soma_por_tipo_e_status(mes_itens, tipo="receita", status=None)
+total_des = soma_por_tipo_e_status(mes_itens, tipo="despesa", status=None)
+rec_abertas = total_rec - rec_pagas
+des_abertas = total_des - des_pagas
+
+# Vencidas (não pagas e com data anterior a hoje)
+rec_vencidas = soma_por_tipo_e_status(mes_itens, tipo="receita", status="vencida")
+des_vencidas = soma_por_tipo_e_status(mes_itens, tipo="despesa", status="vencida")
+
+# Linha 1 — pagas
+l1c1, l1c2 = st.columns(2)
+l1c1.metric("📥 Receitas pagas (mês)", fmt_brl(rec_pagas), help="Receitas com data efetiva na competência selecionada")
+l1c2.metric("💸 Despesas pagas (mês)", fmt_brl(des_pagas), help="Despesas com data efetiva na competência selecionada")
+
+# Linha 2 — em aberto
+l2c1, l2c2 = st.columns(2)
+l2c1.metric("📥 Receitas em aberto (mês)", fmt_brl(rec_abertas), help="Receitas ainda não efetivadas na competência")
+l2c2.metric("💸 Despesas em aberto (mês)", fmt_brl(des_abertas), help="Despesas ainda não efetivadas na competência")
+
+# Linha 3 — vencidas
+l3c1, l3c2 = st.columns(2)
+l3c1.metric("📥 Receitas vencidas (mês)", fmt_brl(rec_vencidas), help="Receitas não pagas com data prevista passada")
+l3c2.metric("💸 Despesas vencidas (mês)", fmt_brl(des_vencidas), help="Despesas não pagas com data prevista passada")
 
 st.divider()
 
@@ -139,17 +157,17 @@ cat_map = cat_opts()
 conta_map = conta_opts()
 
 with st.form("nova_tx"):
-    c1, c2, c3, c4 = st.columns([2,1,2,2])
+    c1, c2, c3, c4 = st.columns([2, 1, 2, 2])
     tipo = c1.selectbox("Tipo", ["despesa", "receita"])
     valor = c2.number_input("Valor (R$)", min_value=0.01, step=0.01)
     data_prev = c3.date_input("Data prevista", value=date.today())
     conta_nome = c4.selectbox("Conta", options=list(conta_map.values()))
 
-    d1, d2 = st.columns([2,2])
+    d1, d2 = st.columns([2, 2])
     categoria_nome = d1.selectbox("Categoria", options=list(cat_map.values()))
     descricao = d2.text_input("Descrição", placeholder="Ex.: Supermercado, Internet, Salário")
 
-    e1, e2 = st.columns([2,2])
+    e1, e2 = st.columns([2, 2])
     parcelar = e1.checkbox("Parcelar?")
     qtd_parc = e2.number_input("Qtd. parcelas", min_value=1, max_value=60, value=1, disabled=not parcelar)
 
@@ -158,12 +176,12 @@ with st.form("nova_tx"):
     salvar_btn = st.form_submit_button("Salvar")
 
 if salvar_btn:
-    inv_cat = {v:k for k,v in cat_map.items()}
-    inv_conta = {v:k for k,v in conta_map.items()}
+    inv_cat = {v: k for k, v in cat_map.items()}
+    inv_conta = {v: k for k, v in conta_map.items()}
     base = {
         "id": novo_id("tx"),
         "tipo": tipo,
-        "descricao": descricao.strip(),
+        "descricao": (descricao or "").strip(),
         "valor": float(valor),
         "data_prevista": data_prev.isoformat(),
         "data_efetiva": (date.today().isoformat() if pagar_hoje else None),
@@ -203,6 +221,7 @@ else:
         "tipo": "Tipo", "descricao": "Descrição", "valor": "Valor", "status_badge": "Status", "id": "ID"
     }).sort_values("Data prevista", ascending=False)
 
+    # Exportar CSV dos itens filtrados
     csv_bytes = df_show.to_csv(index=False).encode("utf-8")
     st.download_button("📤 Exportar CSV (filtros aplicados)", data=csv_bytes, file_name=f"lancamentos_{comp_select}.csv", mime="text/csv")
 
@@ -214,7 +233,7 @@ else:
         alvo = next((x for x in transacoes if x.get("id") == r_id), None)
         if not alvo:
             continue
-        col1, col2, col3, col4, col5 = st.columns([4,2,3,2,4])
+        col1, col2, col3, col4, col5 = st.columns([4, 2, 3, 2, 4])
         col1.write(f"**{row['Descrição']}**")
         col2.write(fmt_brl(float(row["Valor"])))
         col3.write(f"Prevista: {row['Data prevista'] or '—'}")
@@ -232,11 +251,11 @@ else:
         with editar_exp:
             with st.form(f"edit-{r_id}"):
                 e1, e2, e3 = st.columns(3)
-                novo_tipo = e1.selectbox("Tipo", ["despesa", "receita"], index=["despesa","receita"].index(alvo.get("tipo","despesa")))
+                novo_tipo = e1.selectbox("Tipo", ["despesa", "receita"], index=["despesa", "receita"].index(alvo.get("tipo", "despesa")))
                 novo_valor = e2.number_input("Valor (R$)", min_value=0.01, step=0.01, value=float(alvo.get("valor", 0.0)))
                 nova_prev = e3.date_input("Data prevista", value=pd.to_datetime(alvo.get("data_prevista")).date() if alvo.get("data_prevista") else date.today())
 
-                e4 = st.text_input("Descrição", value=alvo.get("descricao",""))
+                e4 = st.text_input("Descrição", value=alvo.get("descricao", ""))
                 limpar_pagamento = st.checkbox("Estornar (remover pagamento)?", value=False)
 
                 ok_btn = st.form_submit_button("Salvar edição")
