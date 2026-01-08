@@ -15,9 +15,8 @@ from services.finance_core import (
     gerar_parcelas,
     normalizar_tx,
     baixar,
-    estornar,
 )
-from services.status import status_badge, derivar_status
+from services.status import derivar_status, status_badge
 from services.competencia import competencia_from_date, label_competencia
 from services.utils import fmt_brl, clear_cache_and_rerun
 
@@ -75,10 +74,11 @@ if default_comp not in competencias:
 competencias = sorted(set(competencias), reverse=True)
 
 st.subheader("🔍 Filtros")
-colf1, colf2 = st.columns([2,2])
+colf1, colf2, colf3 = st.columns([2,2,2])
 comp_select = colf1.selectbox("Competência (mês)", options=competencias,
                               format_func=label_competencia, index=0)
 busca_texto = colf2.text_input("Buscar por descrição")
+somente_em_aberto = colf3.checkbox("Somente em aberto (não pagas)", value=False)
 
 def filtrar_por_comp(ds):
     out = []
@@ -92,6 +92,9 @@ def filtrar_por_comp(ds):
         if busca_texto:
             txt = f"{d.get('descricao','')}".lower()
             if busca_texto.lower() not in txt:
+                continue
+        if somente_em_aberto:
+            if derivar_status(d.get("data_prevista"), d.get("data_efetiva")) == "paga":
                 continue
         out.append(d)
     return out
@@ -182,7 +185,7 @@ if salvar_btn:
         clear_cache_and_rerun()
 
 # --------------------------------------------------
-# Lista por competência (com ações)
+# Lista por competência (com ações por linha)
 # --------------------------------------------------
 st.subheader(f"📋 Lançamentos — {label_competencia(comp_select)}")
 
@@ -196,74 +199,77 @@ else:
     df["Data prevista"] = pd.to_datetime(df["data_prevista"], errors="coerce").dt.date
     df["Data efetiva"] = pd.to_datetime(df["data_efetiva"], errors="coerce").dt.date
 
-    show = df[["tipo", "descricao", "valor", "Data prevista", "Data efetiva", "status_badge", "id"]].rename(columns={
+    df_show = df[["tipo", "descricao", "valor", "Data prevista", "Data efetiva", "status_badge", "id"]].rename(columns={
         "tipo": "Tipo", "descricao": "Descrição", "valor": "Valor", "status_badge": "Status", "id": "ID"
     }).sort_values("Data prevista", ascending=False)
 
-    st.dataframe(show, use_container_width=True)
+    # Exportar CSV dos itens filtrados
+    csv_bytes = df_show.to_csv(index=False).encode("utf-8")
+    st.download_button("📤 Exportar CSV (filtros aplicados)", data=csv_bytes, file_name=f"lancamentos_{comp_select}.csv", mime="text/csv")
 
-    st.markdown("### ✏️ Ações")
-    ac1, ac2, ac3, ac4 = st.columns([3,3,3,2])
-    id_edit = ac1.text_input("ID para editar")
-    id_del = ac2.text_input("ID para excluir")
-    id_pagar = ac3.text_input("ID para marcar como pago/recebido")
-    executar = ac4.button("Executar")
+    st.dataframe(df_show, use_container_width=True)
 
-    if executar:
-        alvo_edit = next((x for x in transacoes if x.get("id") == id_edit), None)
-        alvo_del = next((x for x in transacoes if x.get("id") == id_del), None)
-        alvo_pay = next((x for x in transacoes if x.get("id") == id_pagar), None)
+    st.markdown("### ✏️ Ações por linha")
+    for row in df_show.to_dict(orient="records"):
+        r_id = row["ID"]
+        alvo = next((x for x in transacoes if x.get("id") == r_id), None)
+        if not alvo:
+            continue
+        col1, col2, col3, col4, col5 = st.columns([4,2,3,2,4])
+        col1.write(f"**{row['Descrição']}**")
+        col2.write(fmt_brl(float(row["Valor"])))
+        col3.write(f"Prevista: {row['Data prevista'] or '—'}")
+        col4.write(row["Status"])
+        pagar_btn = col5.button("Marcar como paga/recebida", key=f"pay-{r_id}", disabled=(row["Status"] == "✅ Paga"))
+        editar_exp = st.expander(f"Editar — {r_id}", expanded=False)
+        excluir_btn = st.button("Excluir", key=f"del-{r_id}")
 
-        if alvo_del:
-            ok = excluir(transacoes, alvo_del["id"])
-            if ok:
-                gh.put_json("data/transacoes.json", transacoes, f"Exclui {alvo_del['id']}", sha=sha_trans)
-                clear_cache_and_rerun()
-            else:
-                st.error("Não foi possível excluir.")
-        elif alvo_pay:
-            baixar(alvo_pay)
-            atualizar(transacoes, alvo_pay)
-            gh.put_json("data/transacoes.json", transacoes, f"Baixa {alvo_pay['id']}", sha=sha_trans)
+        if pagar_btn:
+            baixar(alvo)
+            atualizar(transacoes, alvo)
+            gh.put_json("data/transacoes.json", transacoes, f"Baixa {r_id}", sha=sha_trans)
             clear_cache_and_rerun()
-        elif alvo_edit:
-            st.markdown(f"#### Editando {alvo_edit.get('id')} — {alvo_edit.get('descricao','')}")
-            with st.form("editar_item"):
-                e1, e2, e3 = st.columns(3)
-                novo_tipo = e1.selectbox("Tipo", ["despesa", "receita"], index=["despesa","receita"].index(alvo_edit.get("tipo","despesa")))
-                novo_valor = e2.number_input("Valor (R$)", min_value=0.01, step=0.01, value=float(alvo_edit.get("valor", 0.0)))
-                nova_prev = e3.date_input("Data prevista", value=pd.to_datetime(alvo_edit.get("data_prevista")).date() if alvo_edit.get("data_prevista") else date.today())
 
-                e4 = st.text_input("Descrição", value=alvo_edit.get("descricao",""))
+        with editar_exp:
+            with st.form(f"edit-{r_id}"):
+                e1, e2, e3 = st.columns(3)
+                novo_tipo = e1.selectbox("Tipo", ["despesa", "receita"], index=["despesa","receita"].index(alvo.get("tipo","despesa")))
+                novo_valor = e2.number_input("Valor (R$)", min_value=0.01, step=0.01, value=float(alvo.get("valor", 0.0)))
+                nova_prev = e3.date_input("Data prevista", value=pd.to_datetime(alvo.get("data_prevista")).date() if alvo.get("data_prevista") else date.today())
+
+                e4 = st.text_input("Descrição", value=alvo.get("descricao",""))
                 limpar_pagamento = st.checkbox("Estornar (remover pagamento)?", value=False)
 
                 ok_btn = st.form_submit_button("Salvar edição")
 
             if ok_btn:
-                item_editado = alvo_edit.copy()
+                item_editado = alvo.copy()
                 item_editado.update({
                     "tipo": novo_tipo,
                     "valor": float(novo_valor),
                     "data_prevista": nova_prev.isoformat(),
-                    "descricao": e4.strip(),
-                    "data_efetiva": None if limpar_pagamento else alvo_edit.get("data_efetiva"),
+                    "descricao": (e4 or "").strip(),
+                    "data_efetiva": None if limpar_pagamento else alvo.get("data_efetiva"),
                     "atualizado_em": datetime.now().isoformat(),
                 })
                 atualizar(transacoes, item_editado)
-                gh.put_json("data/transacoes.json", transacoes, f"Edita {alvo_edit.get('id')}", sha=sha_trans)
+                gh.put_json("data/transacoes.json", transacoes, f"Edita {r_id}", sha=sha_trans)
                 clear_cache_and_rerun()
-        else:
-            st.info("Informe um ID válido para editar, excluir ou pagar.")
+
+        if excluir_btn:
+            excluir(transacoes, r_id)
+            gh.put_json("data/transacoes.json", transacoes, f"Exclui {r_id}", sha=sha_trans)
+            clear_cache_and_rerun()
 
 st.divider()
 
 # --------------------------------------------------
-# 💰 Orçamento mensal por categoria (opcional)
+# 💰 Orçamento mensal por categoria (visão)
 # --------------------------------------------------
 st.subheader("💰 Orçamento mensal por categoria")
 
 if not orcamentos:
-    st.info("Nenhum orçamento cadastrado em data/orcamentos.json.")
+    st.info("Nenhum orçamento cadastrado em data/orcamentos.json. Você pode gerenciar na página **Orçamentos**.")
 else:
     cat_names = {c.get("id"): c.get("nome") for c in categorias}
     gastos_cat = {}
