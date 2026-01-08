@@ -6,6 +6,7 @@ import copy
 import calendar
 from services.status import derivar_status
 
+# ---------- Util: adicionar meses (com ajuste dia) ----------
 def add_months(d: date, months: int) -> date:
     year = d.year + (d.month - 1 + months) // 12
     month = (d.month - 1 + months) % 12 + 1
@@ -13,11 +14,13 @@ def add_months(d: date, months: int) -> date:
     day = min(d.day, last)
     return date(year, month, day)
 
+# ---------- IDs ----------
 def novo_id(prefix: str) -> str:
     ts = datetime.now().strftime("%Y%m%d%H%M%S")
     rand = uuid.uuid4().hex[:4]
     return f"{prefix}-{ts}-{rand}"
 
+# ---------- CRUD ----------
 def criar(lista: list, item: dict):
     lista.append(item)
     return item
@@ -38,6 +41,7 @@ def excluir(lista: list, item_id: str) -> bool:
             return True
     return False
 
+# ---------- Baixar / Estornar ----------
 def baixar(tx: dict, forma_pagamento: str | None = None):
     tx["data_efetiva"] = datetime.now().date().isoformat()
     if forma_pagamento:
@@ -47,9 +51,11 @@ def estornar(tx: dict):
     tx["data_efetiva"] = None
     tx.pop("forma_pagamento", None)
 
+# ---------- Parcelamento ----------
 def gerar_parcelas(item_base: dict, qtd_parcelas: int, intervalo_meses: int = 1) -> list:
     if qtd_parcelas < 1:
         raise ValueError("Qtd de parcelas deve ser >= 1")
+
     total = float(item_base["valor"])
     base = round(total / qtd_parcelas, 2)
     valores = [base] * qtd_parcelas
@@ -70,6 +76,7 @@ def gerar_parcelas(item_base: dict, qtd_parcelas: int, intervalo_meses: int = 1)
         parcelas.append(p)
     return parcelas
 
+# ---------- Saldo por conta ----------
 def saldo_atual(conta: dict, transacoes: list) -> float:
     saldo = float(conta.get("saldo_inicial", 0.0))
     for tx in transacoes:
@@ -85,9 +92,15 @@ def saldo_atual(conta: dict, transacoes: list) -> float:
                 saldo -= v
     return round(saldo, 2)
 
+# ---------- Helpers ----------
 def normalizar_tx(d):
+    """
+    Normaliza transação de forma segura.
+    Retorna None para itens inválidos (não-dict).
+    """
     if not isinstance(d, dict):
         return None
+
     d = d.copy()
     d.setdefault("id", "")
     d.setdefault("tipo", "despesa")
@@ -100,6 +113,7 @@ def normalizar_tx(d):
     d.setdefault("excluido", False)
     d.setdefault("parcelamento", None)
     d.setdefault("recorrente", False)
+
     d["status"] = derivar_status(d.get("data_prevista"), d.get("data_efetiva"))
     return d
 
