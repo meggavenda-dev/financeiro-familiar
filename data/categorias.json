@@ -18,5 +18,10 @@
     "id": "cat-20260108021547-91c1",
     "nome": "Compras (Diversas)",
     "tipo": "despesa"
+  },
+  {
+    "id": "cat-20260108021605-7166",
+    "nome": "Academia",
+    "tipo": "despesa"
   }
 ]
