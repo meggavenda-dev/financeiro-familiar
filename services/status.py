@@ -26,10 +26,10 @@ def derivar_status(data_prevista: str | None, data_efetiva: str | None) -> str:
         return "vencendo"
     return "planejada"
 
-def status_badge(st: str) -> str:
+def status_badge(sts: str) -> str:
     return {
         "planejada": "📝 Planejada",
         "vencendo": "⏳ Vencendo",
         "vencida": "🔴 Vencida",
         "paga": "✅ Paga",
-    }.get(st, st)
+    }.get(sts, sts)
