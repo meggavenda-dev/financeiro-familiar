@@ -1,51 +1,174 @@
 
-# services/app_context.py
+# app.py
+import sys
+from pathlib import Path
+
+# ---- Corrige ImportError: garante a raiz no sys.path ----
+ROOT = Path(__file__).resolve().parent
+if str(ROOT) not in sys.path:
+    sys.path.insert(0, str(ROOT))
+
 import streamlit as st
-from github_service import GitHubService
+import pandas as pd
+from datetime import date
 
-def init_context():
-    """
-    Inicializa o estado de sessão do Streamlit e tenta instanciar o GitHubService
-    se houver credenciais disponíveis.
-    
-    - Lê valores padrão de st.secrets (repo_full_name, github_token, branch_name).
-    - Define usuário e perfil default (u1 / admin).
-    - Cria instância de GitHubService caso ainda não exista e haja credenciais.
-    - Marca 'connected' no session_state para guiar o fluxo das páginas.
-    """
-    ss = st.session_state
+from services.app_context import get_context, init_context
+from services.data_loader import load_all, listar_categorias
+from services.finance_core import normalizar_tx, saldo_atual
+from services.status import derivar_status
+from services.utils import fmt_brl, data_ref_row
 
-    # Valores padrão / secrets
-    ss["repo_full_name"] = ss.get("repo_full_name", st.secrets.get("repo_full_name", ""))
-    ss["github_token"]   = ss.get("github_token",   st.secrets.get("github_token", ""))
-    ss["branch_name"]    = ss.get("branch_name",    st.secrets.get("branch_name", "main"))
+st.set_page_config(page_title="Financeiro Familiar", page_icon="💰", layout="wide")
+st.title("💰 Financeiro Familiar")
+st.caption("Dashboard inteligente de saúde financeira familiar")
 
-    # Contexto de usuário local (pode ser ligado a um controle de autenticação futuramente)
-    ss["usuario_id"] = ss.get("usuario_id", "u1")
-    ss["perfil"] = ss.get("perfil", "admin")
+# -------------------------------------------------
+# Conexão
+# -------------------------------------------------
+init_context()
+ctx = get_context()
 
-    # Instancia GitHubService se houver credenciais e ainda não existir
-    if "gh" not in ss and ss["repo_full_name"] and ss["github_token"]:
+with st.sidebar:
+    st.header("🔧 Conexão")
+    st.text_input("Repositório (owner/repo)", key="repo_full_name", value=ctx["repo_full_name"] or "")
+    st.text_input("GitHub Token", key="github_token", type="password", value=ctx["github_token"] or "")
+    st.text_input("Branch", key="branch_name", value=ctx["branch_name"] or "main")
+
+    if st.button("Conectar"):
+        from github_service import GitHubService
         try:
-            ss["gh"] = GitHubService(
-                token=ss["github_token"],
-                repo_full_name=ss["repo_full_name"],
-                branch=ss["branch_name"],
+            ctx["gh"] = GitHubService(
+                token=st.session_state["github_token"],
+                repo_full_name=st.session_state["repo_full_name"],
+                branch=st.session_state["branch_name"]
             )
-            ss["connected"] = True
+            ctx["connected"] = True
+            st.cache_data.clear()
+            st.success("✅ Conectado ao GitHub")
+            st.rerun()
         except Exception as e:
-            # Em caso de falha (token inválido, permissão insuficiente, etc.)
-            ss["gh"] = None
-            ss["connected"] = False
-            ss["gh_error"] = str(e)
-    else:
-        # Se já existe 'gh' no estado, considera conectado quando não é None
-        ss["connected"] = "gh" in ss and ss["gh"] is not None
+            st.error(f"Erro ao conectar: {e}")
 
-def get_context():
-    """
-    Retorna o session_state sem mutações.
-    NÃO chama init_context() para evitar escrita dentro de funções cacheadas.
-    Garanta que init_context() foi chamado no início da execução de cada página/app.
-    """
-    return st.session_state
+    if not ctx.get("connected"):
+        st.warning("Conecte ao GitHub para continuar.")
+        st.stop()
+
+    st.divider()
+    st.header("👤 Perfil")
+    st.selectbox("Perfil", ["admin", "comum"], key="perfil")
+
+# -------------------------------------------------
+# Dados
+# -------------------------------------------------
+data = load_all((ctx["repo_full_name"], ctx["branch_name"]))
+
+# ✅ Normalização defensiva
+transacoes = [
+    t for t in (normalizar_tx(x) for x in data["data/transacoes.json"]["content"])
+    if t is not None
+]
+contas = data["data/contas.json"]["content"]
+
+# -------------------------------------------------
+# KPIs do mês — Realizadas vs Previstas
+# -------------------------------------------------
+hoje = date.today()
+inicio = date(hoje.year, hoje.month, 1)
+
+df = pd.DataFrame(transacoes)
+if not df.empty:
+    df["data_prevista_date"] = pd.to_datetime(df["data_prevista"], errors="coerce").dt.date
+    df["data_efetiva_date"] = pd.to_datetime(df["data_efetiva"], errors="coerce").dt.date
+    df["valor"] = pd.to_numeric(df["valor"], errors="coerce").fillna(0.0)
+    df["tipo"] = df["tipo"].astype(str)
+
+    realizadas = df[df["data_efetiva_date"].between(inicio, hoje, inclusive="both")]
+    previstas = df[(df["data_efetiva_date"].isna()) & (df["data_prevista_date"].between(inicio, hoje, inclusive="both"))]
+
+    rec_real = float(realizadas[realizadas["tipo"] == "receita"]["valor"].sum())
+    des_real = float(realizadas[realizadas["tipo"] == "despesa"]["valor"].sum())
+    rec_prev = float(previstas[previstas["tipo"] == "receita"]["valor"].sum())
+    des_prev = float(previstas[previstas["tipo"] == "despesa"]["valor"].sum())
+else:
+    rec_real = des_real = rec_prev = des_prev = 0.0
+
+saldo_real = rec_real - des_real
+saldo_prev = rec_prev - des_prev
+
+# Saldos por conta (calculados com transações pagas)
+saldo_total = 0.0
+for conta in contas:
+    saldo_total += saldo_atual(conta, transacoes)
+
+# KPIs — Realizado
+c1, c2, c3, c4 = st.columns(4)
+c1.metric("Receitas realizadas (mês)", fmt_brl(rec_real), help="Somatório de receitas com data efetiva no mês corrente")
+c2.metric("Despesas realizadas (mês)", fmt_brl(des_real), help="Somatório de despesas com data efetiva no mês corrente")
+c3.metric("Saldo realizado (mês)", fmt_brl(saldo_real), help="Receitas realizadas − Despesas realizadas")
+c4.metric("Saldo total (contas)", fmt_brl(saldo_total), help="Baseado apenas em transações com data efetiva nas contas")
+
+# KPIs — Previsto
+c5, c6, c7 = st.columns(3)
+c5.metric("Receitas previstas (mês)", fmt_brl(rec_prev), help="Receitas sem data efetiva, previstas para este mês")
+c6.metric("Despesas previstas (mês)", fmt_brl(des_prev), help="Despesas sem data efetiva, previstas para este mês")
+c7.metric("Saldo previsto (mês)", fmt_brl(saldo_prev), help="Receitas previstas − Despesas previstas")
+
+st.divider()
+
+# -------------------------------------------------
+# Tendência de saldo no mês (cash vs projeção)
+# -------------------------------------------------
+st.subheader("📈 Tendência de saldo no mês")
+incluir_previstas = st.checkbox("Incluir previstas (projeção)", value=False, help="Quando marcado, inclui lançamentos previstos ainda não efetivados.")
+if not df.empty:
+    # Base: apenas efetivas para fluxo de caixa real
+    efetivas = df.dropna(subset=["data_efetiva_date"]).copy()
+    efetivas["data_ref"] = efetivas["data_efetiva_date"]
+    efetivas = efetivas[(efetivas["data_ref"] >= inicio) & (efetivas["data_ref"] <= hoje)]
+
+    if incluir_previstas:
+        prevs = df[df["data_efetiva_date"].isna()].copy()
+        prevs["data_ref"] = prevs["data_prevista_date"]
+        prevs = prevs[(prevs["data_ref"] >= inicio) & (prevs["data_ref"] <= hoje)]
+        base_df = pd.concat([efetivas, prevs], ignore_index=True)
+    else:
+        base_df = efetivas
+
+    receitas_df = base_df[base_df["tipo"] == "receita"].copy()
+    despesas_df = base_df[base_df["tipo"] == "despesa"].copy()
+
+    receitas_df["valor_signed"] = receitas_df["valor"]
+    despesas_df["valor_signed"] = -despesas_df["valor"]
+
+    movs = pd.concat(
+        [receitas_df[["data_ref", "valor_signed"]], despesas_df[["data_ref", "valor_signed"]]],
+        ignore_index=True
+    ).sort_values("data_ref")
+
+    saldo_diario = movs.groupby("data_ref")["valor_signed"].sum().cumsum()
+    st.line_chart(saldo_diario)
+else:
+    st.info("Sem dados suficientes para gerar gráfico.")
+
+st.divider()
+
+# -------------------------------------------------
+# Despesas por categoria (realizadas no mês)
+# -------------------------------------------------
+st.subheader("🧩 Despesas por categoria (realizadas no mês)")
+if not df.empty:
+    cats, _ = listar_categorias(ctx["gh"])
+    cat_map = {c["id"]: c["nome"] for c in cats}
+    realizadas_df = df.dropna(subset=["data_efetiva_date"]).copy()
+    realizadas_df = realizadas_df[
+        (realizadas_df["data_efetiva_date"] >= inicio) & (realizadas_df["data_efetiva_date"] <= hoje)
+    ]
+    despesas_df = realizadas_df[realizadas_df["tipo"] == "despesa"].copy()
+    if despesas_df.empty:
+        st.info("Sem despesas realizadas neste mês.")
+    else:
+        despesas_df["categoria_nome"] = despesas_df["categoria_id"].map(cat_map).fillna("Sem categoria")
+        agg = despesas_df.groupby("categoria_nome")["valor"].sum().sort_values(ascending=False)
+        st.bar_chart(agg)
+else:
+    st.info("Sem dados para agrupar por categoria.")
