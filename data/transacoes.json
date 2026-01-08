@@ -11,7 +11,8 @@
     "excluido": false,
     "parcelamento": null,
     "recorrente": false,
-    "status": "paga"
+    "status": "paga",
+    "codigo": 1
   },
   {
     "id": "tx-20260108022050-bc5a",
@@ -26,6 +27,7 @@
     "parcelamento": null,
     "recorrente": false,
     "status": "planejada",
-    "atualizado_em": "2026-01-08T12:18:57.991727"
+    "atualizado_em": "2026-01-08T12:18:57.991727",
+    "codigo": 2
   }
 ]
