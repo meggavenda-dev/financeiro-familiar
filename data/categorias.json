@@ -23,5 +23,10 @@
     "id": "cat-20260108021605-7166",
     "nome": "Academia",
     "tipo": "despesa"
+  },
+  {
+    "id": "cat-20260108021646-0438",
+    "nome": "Telefone",
+    "tipo": "despesa"
   }
 ]
