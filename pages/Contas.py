@@ -6,7 +6,7 @@ from datetime import date, timedelta
 from services.app_context import init_context, get_context
 from services.data_loader import load_all
 from services.permissions import require_admin
-from services.finance_core import normalizar_tx, atualizar
+from services.finance_core import normalizar_tx, atualizar, estornar  # CHANGE: adiciona estornar
 from services.status import derivar_status
 from services.utils import (
     fmt_brl,
@@ -62,7 +62,7 @@ def salvar(msg: str):
     clear_cache_and_rerun()
 
 
-def badge_text(tx: dict) -> str:
+def badge_text(tx: dict) -> str:  # CHANGE: remove HTML entities na assinatura
     """Texto amigável baseado APENAS no status lógico."""
     stx = derivar_status(tx.get("data_prevista"), tx.get("data_efetiva"))
     d = parse_date_safe(tx.get("data_prevista"))
@@ -115,7 +115,8 @@ with tab_pagar:
             prev = parse_date_safe(tx.get("data_prevista"))
             status = derivar_status(tx.get("data_prevista"), tx.get("data_efetiva"))
 
-            c1, c2, c3, c4, c5 = st.columns([4, 2, 3, 2, 3])
+            # CHANGE: adiciona coluna extra para botão Estornar
+            c1, c2, c3, c4, c5, c6 = st.columns([4, 2, 3, 2, 3, 3])
 
             c1.write(f"**{tx.get('descricao','—')}**")
             c2.write(fmt_brl(float(tx.get("valor", 0))))
@@ -126,6 +127,12 @@ with tab_pagar:
                 "Marcar como paga",
                 key=key_for("pagar", tx["id"]),
                 disabled=(status == "paga"),
+            )
+            # CHANGE: novo botão de estorno
+            estornar_btn = c6.button(
+                "Estornar pagamento",
+                key=key_for("estornar", tx["id"]),
+                disabled=(status != "paga"),
             )
 
             nova_prev = c5.date_input(
@@ -144,6 +151,11 @@ with tab_pagar:
                 tx["data_efetiva"] = date.today().isoformat()
                 atualizar(transacoes, tx)
                 salvar(f"Baixa pagar: {tx.get('descricao')}")
+
+            if estornar_btn:
+                estornar(tx)
+                atualizar(transacoes, tx)
+                salvar(f"Estorno pagar: {tx.get('descricao')}")
 
             if salvar_prev and nova_prev and status != "paga":
                 tx["data_prevista"] = nova_prev.isoformat()
@@ -180,7 +192,8 @@ with tab_receber:
             prev = parse_date_safe(tx.get("data_prevista"))
             status = derivar_status(tx.get("data_prevista"), tx.get("data_efetiva"))
 
-            c1, c2, c3, c4, c5 = st.columns([4, 2, 3, 2, 3])
+            # CHANGE: adiciona coluna extra para botão Estornar
+            c1, c2, c3, c4, c5, c6 = st.columns([4, 2, 3, 2, 3, 3])
 
             c1.write(f"**{tx.get('descricao','—')}**")
             c2.write(fmt_brl(float(tx.get("valor", 0))))
@@ -191,6 +204,12 @@ with tab_receber:
                 "Marcar como recebida",
                 key=key_for("receber", tx["id"]),
                 disabled=(status == "paga"),
+            )
+            # CHANGE: novo botão de estorno
+            estornar_btn = c6.button(
+                "Estornar recebimento",
+                key=key_for("estornar-rec", tx["id"]),
+                disabled=(status != "paga"),
             )
 
             nova_prev = c5.date_input(
@@ -210,6 +229,11 @@ with tab_receber:
                 atualizar(transacoes, tx)
                 salvar(f"Baixa receber: {tx.get('descricao')}")
 
+            if estornar_btn:
+                estornar(tx)
+                atualizar(transacoes, tx)
+                salvar(f"Estorno receber: {tx.get('descricao')}")
+
             if salvar_prev and nova_prev and status != "paga":
                 tx["data_prevista"] = nova_prev.isoformat()
                 atualizar(transacoes, tx)
@@ -219,7 +243,7 @@ with tab_receber:
 # Resumo futuro
 # --------------------------------------------------
 st.divider()
-st.subheader("📊 Planejamento & Fluxo Futuro")
+st.subheader("📊 Planejamento & Fluxo Futuro")  # CHANGE: remove HTML entity
 
 hoje = date.today()
 
@@ -241,9 +265,9 @@ def resumo(tipo: str):
             continue
 
         total += v
-        if d < hoje:
+        if d < hoje:  # CHANGE: remove &lt;
             vencido += v
-        elif d <= hoje + timedelta(days=7):
+        elif d <= hoje + timedelta(days=7):  # CHANGE: remove &lt;=
             prox7 += v
 
     return total, vencido, prox7
@@ -261,3 +285,4 @@ c4, c5, c6 = st.columns(3)
 c4.metric("📥 A Receber (aberto)", fmt_brl(r_aberto))
 c5.metric("🔴 Vencidas (receber)", fmt_brl(r_vencido))
 c6.metric("🟡 Próx. 7 dias (receber)", fmt_brl(r_prox7))
+
