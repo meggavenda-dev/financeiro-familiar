@@ -4,8 +4,8 @@ import streamlit as st
 import pandas as pd
 from datetime import date
 
-from services.app_context import init_context, get_context, get_config
-from services.data_loader import load_transactions, load_accounts, load_categories
+from services.app_context import get_context, init_context
+from services.data_loader import load_all, listar_categorias
 from services.finance_core import normalizar_tx, saldo_atual
 from services.status import derivar_status
 from services.utils import fmt_brl
@@ -15,11 +15,10 @@ st.title("💰 Financeiro Familiar")
 st.caption("Dashboard inteligente de saúde financeira familiar")
 
 # -------------------------------------------------
-# Conexão (init_context centralizado)
+# Conexão
 # -------------------------------------------------
 init_context()
 ctx = get_context()
-cfg = get_config()
 
 with st.sidebar:
     st.header("🔧 Conexão")
@@ -42,7 +41,7 @@ with st.sidebar:
         except Exception as e:
             st.error(f"Erro ao conectar: {e}")
 
-    if not cfg.connected:
+    if not ctx.get("connected"):
         st.warning("Conecte ao GitHub para continuar.")
         st.stop()
 
@@ -51,15 +50,16 @@ with st.sidebar:
     st.selectbox("Perfil", ["admin", "comum"], key="perfil")
 
 # -------------------------------------------------
-# Dados (cache fragmentado)
+# Dados
 # -------------------------------------------------
-key = (cfg.repo_full_name, cfg.branch_name)
-trans_map = load_transactions(key)
-acc_map   = load_accounts(key)
-cats_map  = load_categories(key)
+data = load_all((ctx["repo_full_name"], ctx["branch_name"]))
 
-transacoes = [t for t in (normalizar_tx(x) for x in trans_map["content"]) if t is not None]
-contas = acc_map["content"]
+# ✅ Normalização defensiva
+transacoes = [
+    t for t in (normalizar_tx(x) for x in data["data/transacoes.json"]["content"])
+    if t is not None
+]
+contas = data["data/contas.json"]["content"]
 
 # -------------------------------------------------
 # KPIs básicos do mês corrente
@@ -82,6 +82,7 @@ total_receitas = float(df[df["tipo"] == "receita"]["valor"].sum()) if not df.emp
 total_despesas = float(df[df["tipo"] == "despesa"]["valor"].sum()) if not df.empty else 0.0
 saldo_mes = total_receitas - total_despesas
 
+# Saldos por conta (calculados com transações pagas)
 saldo_total = 0.0
 for conta in contas:
     saldo_total += saldo_atual(conta, transacoes)
@@ -98,26 +99,26 @@ st.subheader("📈 Tendência de saldo no mês")
 if not df.empty:
     receitas_df = df[df["tipo"] == "receita"].copy()
     despesas_df = df[df["tipo"] == "despesa"].copy()
+
     receitas_df["valor_signed"] = receitas_df["valor"]
     despesas_df["valor_signed"] = -despesas_df["valor"]
-    movs = pd.concat(
-        [receitas_df[["data_ref", "valor_signed"]], despesas_df[["data_ref", "valor_signed"]]],
-        ignore_index=True
-    )
+
+    movs = pd.concat([receitas_df[["data_ref", "valor_signed"]],
+                      despesas_df[["data_ref", "valor_signed"]]], ignore_index=True)
     movs = movs.sort_values("data_ref")
     saldo_diario = movs.groupby("data_ref")["valor_signed"].sum().cumsum()
     st.line_chart(saldo_diario)
 else:
-    st.info("Sem dados suficientes para gráfico.")
+    st.info("Sem dados suficientes para gerar gráfico.")
 
 st.divider()
 st.subheader("🧩 Despesas por categoria (mês)")
 if not df.empty:
-    cat_map = {c["id"]: c["nome"] for c in cats_map["content"]}
+    cats, _ = listar_categorias(ctx["gh"])
+    cat_map = {c["id"]: c["nome"] for c in cats}
     despesas_df = df[df["tipo"] == "despesa"].copy()
     despesas_df["categoria_nome"] = despesas_df["categoria_id"].map(cat_map).fillna("Sem categoria")
     agg = despesas_df.groupby("categoria_nome")["valor"].sum().sort_values(ascending=False)
     st.bar_chart(agg)
 else:
     st.info("Sem despesas no período para agrupar por categoria.")
-
