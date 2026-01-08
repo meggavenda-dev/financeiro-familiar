@@ -203,7 +203,6 @@ else:
         "tipo": "Tipo", "descricao": "Descrição", "valor": "Valor", "status_badge": "Status", "id": "ID"
     }).sort_values("Data prevista", ascending=False)
 
-    # Exportar CSV dos itens filtrados
     csv_bytes = df_show.to_csv(index=False).encode("utf-8")
     st.download_button("📤 Exportar CSV (filtros aplicados)", data=csv_bytes, file_name=f"lancamentos_{comp_select}.csv", mime="text/csv")
 
