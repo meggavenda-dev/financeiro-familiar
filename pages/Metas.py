@@ -4,8 +4,9 @@ import streamlit as st
 from datetime import date
 import pandas as pd
 
-from services.app_context import get_context
+from services.app_context import init_context, get_context
 from services.data_loader import load_all
+from services.utils import fmt_brl
 
 # --------------------------------------------------
 # Configuração da página
@@ -16,21 +17,19 @@ st.title("🎯 Metas Financeiras")
 # --------------------------------------------------
 # Contexto / Conexão
 # --------------------------------------------------
-from services.app_context import init_context, get_context
-
 init_context()
 ctx = get_context()
-if not ctx.connected:
+if not ctx.get("connected"):
     st.warning("Conecte ao GitHub na página principal para acessar as metas.")
     st.stop()
 
-gh = ctx.gh
+gh = ctx.get("gh")
+is_admin = (ctx.get("perfil") == "admin")
 
 # --------------------------------------------------
 # Carregamento de dados (com sanitização defensiva)
 # --------------------------------------------------
-data = load_all((ctx.repo_full_name, ctx.branch_name))
-
+data = load_all((ctx["repo_full_name"], ctx["branch_name"]))
 metas_map = data.get("data/metas.json", {"content": [], "sha": None})
 metas_raw = metas_map.get("content", [])
 sha_metas = metas_map.get("sha")
@@ -38,10 +37,9 @@ sha_metas = metas_map.get("sha")
 # ⚠️ Sanitiza: garante que só vamos trabalhar com dicts
 metas = [m for m in metas_raw if isinstance(m, dict)]
 
-def salvar():
-    """Salva 'metas' sanitizadas e atualiza SHA."""
+def salvar(mensagem="Update metas financeiras"):
     global sha_metas
-    new_sha = gh.put_json("data/metas.json", metas, "Update metas financeiras", sha=sha_metas)
+    new_sha = gh.put_json("data/metas.json", metas, mensagem, sha=sha_metas)
     sha_metas = new_sha
     st.cache_data.clear()
     st.rerun()
@@ -49,12 +47,6 @@ def salvar():
 # --------------------------------------------------
 # Helpers
 # --------------------------------------------------
-def fmt_brl(v: float) -> str:
-    try:
-        return f"R$ {float(v):,.2f}".replace(",", "X").replace(".", ",").replace("X", ".")
-    except Exception:
-        return "R$ 0,00"
-
 def meses_restantes(data_meta: str) -> int:
     """Calcula quantos meses faltam até a data_meta (mínimo 1)."""
     try:
@@ -90,8 +82,6 @@ def progresso(meta: dict) -> float:
 # --------------------------------------------------
 # Cadastro de nova meta (ADMIN)
 # --------------------------------------------------
-is_admin = (ctx.perfil == "admin")
-
 if is_admin:
     with st.expander("➕ Cadastrar nova meta"):
         with st.form("nova_meta"):
@@ -107,7 +97,6 @@ if is_admin:
             salvar_btn = st.form_submit_button("Salvar meta")
 
         if salvar_btn:
-            # Insere somente dict válido e completo
             metas.append({
                 "id": f"m-{len(metas)+1}",
                 "nome": (nome or "").strip(),
@@ -118,7 +107,7 @@ if is_admin:
                 "regra": {"tipo": tipo_regra, "percentual": float(pct) if tipo_regra == "percentual_receita" else 0.0},
                 "ativa": True,
             })
-            salvar()
+            salvar("Cria nova meta financeira")
 
 # --------------------------------------------------
 # Exibição das metas (com defesa total)
@@ -128,7 +117,6 @@ if not metas:
     st.stop()
 
 for meta in metas:
-    # 🔐 Defesa: só processa dicts e com campos previstos
     if not isinstance(meta, dict):
         continue
 
@@ -174,10 +162,9 @@ for meta in metas:
                 value=atual,
                 key=f"acc-{meta.get('id','sem-id')}"
             )
-            # Atualiza somente se mudou
             if novo_valor != atual:
                 meta["valor_atual"] = float(novo_valor)
-                salvar()
+                salvar("Atualiza valor acumulado de meta")
 
     st.divider()
 
