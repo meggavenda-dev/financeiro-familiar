@@ -68,8 +68,11 @@ def conta_opts():
 # Filtros de competência e texto
 # --------------------------------------------------
 competencias = sorted(
-    {competencia_from_date(pd.to_datetime(x.get("data_prevista") or x.get("data_efetiva")).date())
-     for x in transacoes if (x.get("data_prevista") or x.get("data_efetiva"))},
+    {
+        competencia_from_date(pd.to_datetime(x.get("data_prevista") or x.get("data_efetiva")).date())
+        for x in transacoes
+        if (x.get("data_prevista") or x.get("data_efetiva"))
+    },
     reverse=True
 )
 default_comp = competencia_from_date(date.today())
@@ -150,6 +153,7 @@ st.divider()
 # Cadastro — novo / parcelado (data BR texto + validação)
 # --------------------------------------------------
 st.subheader("➕ Nova transação")
+
 cat_map = cat_opts()
 conta_map = conta_opts()
 
@@ -185,7 +189,7 @@ if salvar_btn:
 
         base = {
             "id": novo_id("tx"),
-            "codigo": next_code,
+            "codigo": next_code,                    # código decimal persistente
             "tipo": tipo,
             "descricao": (descricao or "").strip(),
             "valor": float(valor),
@@ -219,22 +223,38 @@ if not lista_mes:
 else:
     df = pd.DataFrame(lista_mes)
 
+    # status + badges
     df["status"] = df.apply(lambda r: derivar_status(r.get("data_prevista"), r.get("data_efetiva")), axis=1)
     df["Status"] = df["status"].apply(status_badge)
 
+    # datas BR
     df["Prevista (BR)"] = df["data_prevista"].apply(lambda x: fmt_date_br(x))
     df["Efetiva (BR)"] = df["data_efetiva"].apply(lambda x: fmt_date_br(x))
 
+    # nomes de conta e categoria
     conta_map_rev = {c.get("id"): c.get("nome") for c in contas}
     cat_map_rev = {c.get("id"): c.get("nome") for c in categorias}
     df["Conta"] = df["conta_id"].map(conta_map_rev).fillna(df["conta_id"])
     df["Categoria"] = df["categoria_id"].map(cat_map_rev).fillna(df["categoria_id"])
+
+    # tipo com ícone amigável
     df["Tipo"] = df["tipo"].map({"despesa": "💸 Despesa", "receita": "📥 Receita"}).fillna(df["tipo"])
 
+    # ordenação por data prevista real (não textual)
     df["_sort_prev"] = pd.to_datetime(df["data_prevista"], errors="coerce")
+
+    # fallback defensivo para 'codigo'
+    if "codigo" not in df.columns:
+        df["codigo"] = -1
+    df["codigo"] = df["codigo"].fillna(-1).astype(int)
+
+    # preparação de exibição
     df = df.rename(columns={"descricao": "Descrição"})
     show_cols = ["codigo", "Tipo", "Descrição", "valor", "Prevista (BR)", "Efetiva (BR)", "Status", "Conta", "Categoria", "id"]
-    show_df = df[show_cols].sort_values(["_sort_prev", "codigo"], ascending=[False, True]).drop(columns=["id"]).reset_index(drop=True)
+
+    # ✅ primeiro ordena, depois seleciona colunas (evita KeyError)
+    sorted_df = df.sort_values(["_sort_prev", "codigo"], ascending=[False, True])
+    show_df = sorted_df[show_cols].drop(columns=["id"]).reset_index(drop=True)
 
     # Exportar CSV dos itens filtrados
     csv_bytes = show_df.to_csv(index=False).encode("utf-8")
@@ -243,7 +263,8 @@ else:
     st.dataframe(show_df, use_container_width=True, hide_index=True)
 
     st.markdown("### ✏️ Ações por linha")
-    for row in df.sort_values(["_sort_prev", "codigo"], ascending=[False, True]).to_dict(orient="records"):
+    # Usar 'sorted_df' para manter consistência de ordenação nas ações
+    for row in sorted_df.to_dict(orient="records"):
         r_id = row["id"]
         r_code = row.get("codigo")
         alvo = next((x for x in transacoes if x.get("id") == r_id), None)
@@ -282,8 +303,10 @@ else:
                 ok_btn = st.form_submit_button("Salvar edição", type="primary")
 
             if ok_btn:
-                nova_prev_dt = _parse_br_date_or_error(nova_prev_str)
-                if not nova_prev_dt:
+                from datetime import datetime as dtmod
+                try:
+                    nova_prev_dt = dtmod.strptime(nova_prev_str, "%d/%m/%Y").date()
+                except Exception:
                     st.error("Data prevista inválida (dd/mm/aaaa).")
                 else:
                     item_editado = alvo.copy()
@@ -293,7 +316,7 @@ else:
                         "data_prevista": nova_prev_dt.isoformat(),
                         "descricao": (e4 or "").strip(),
                         "data_efetiva": None if limpar_pagamento else alvo.get("data_efetiva"),
-                        "atualizado_em": datetime.now().isoformat(),
+                        "atualizado_em": dtmod.now().isoformat(),
                     })
                     atualizar(transacoes, item_editado)
                     gh.put_json("data/transacoes.json", transacoes, f"Edita {r_id}", sha=sha_trans)
@@ -338,4 +361,3 @@ else:
     if estouradas:
         nomes = ", ".join(r["Categoria"] for r in estouradas)
         st.error(f"🔔 Orçamento estourado: {nomes}")
-
