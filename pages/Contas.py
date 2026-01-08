@@ -11,33 +11,21 @@ from services.finance_core import normalizar_tx, atualizar
 from services.status import derivar_status
 from services.utils import fmt_brl, parse_date_safe, clear_cache_and_rerun, fmt_date_br
 
-# --------------------------------------------------
-# Página
-# --------------------------------------------------
 st.set_page_config(page_title="Contas a Pagar / Receber", page_icon="📅", layout="wide")
 st.title("📅 Contas a Pagar / Receber")
 
-# --------------------------------------------------
-# Contexto
-# --------------------------------------------------
 init_context()
 ctx = get_context()
 if not ctx.get("connected"):
     st.warning("Conecte ao GitHub na página principal antes de usar esta página.")
     st.stop()
-
 require_admin(ctx)
+
 gh = ctx.get("gh")
 
-# --------------------------------------------------
-# Dados (unificados)
-# --------------------------------------------------
 data = load_all((ctx["repo_full_name"], ctx["branch_name"]))
 trans_map = data["data/transacoes.json"]
-transacoes = [
-    t for t in (normalizar_tx(x) for x in trans_map["content"])
-    if t is not None
-]
+transacoes = [t for t in (normalizar_tx(x) for x in trans_map["content"]) if t is not None]
 sha_trans = trans_map["sha"]
 
 def salvar(transacoes, mensagem: str):
@@ -58,7 +46,7 @@ def badge_calc(tx):
 
 tab_pagar, tab_receber = st.tabs(["💸 A Pagar", "📥 A Receber"])
 
-# -------------------- A PAGAR (despesa) --------------------
+# --- A PAGAR (despesa) ---
 with tab_pagar:
     st.subheader("💸 Contas a Pagar")
     mostrar_pagas_pagar = st.checkbox("Mostrar itens pagos", value=False, key="mostrar_pagas_pagar")
@@ -102,7 +90,7 @@ with tab_pagar:
                 atualizar(transacoes, c)
                 salvar(transacoes, f"Reagendamento pagar: {c.get('descricao')} -> {nova_prev.isoformat()}")
 
-# -------------------- A RECEBER (receita) --------------------
+# --- A RECEBER (receita) ---
 with tab_receber:
     st.subheader("📥 Contas a Receber")
     mostrar_pagas_receber = st.checkbox("Mostrar itens recebidos", value=False, key="mostrar_pagas_receber")
@@ -146,7 +134,6 @@ with tab_receber:
                 atualizar(transacoes, c)
                 salvar(transacoes, f"Reagendamento receber: {c.get('descricao')} -> {nova_prev.isoformat()}")
 
-# -------------------- Resumo futuro --------------------
 st.divider()
 st.subheader("📊 Planejamento & Fluxo Futuro (em aberto)")
 
@@ -187,3 +174,4 @@ c5.metric("🔴 Vencidas (receber)", fmt_brl(r_vencido), help="Vencidas até hoj
 c6.metric("🟡 Próx. 7 dias (receber)", fmt_brl(r_prox7))
 
 st.success("✅ Módulo de Contas mostra apenas itens em aberto por padrão. Use os checkboxes para auditoria de pagos/recebidos.")
+
