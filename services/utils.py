@@ -3,46 +3,77 @@
 import streamlit as st
 import pandas as pd
 from datetime import date, datetime
+from typing import Any
 
-def fmt_brl(v) -> str:
-    """Formata valores em BRL de forma tolerante."""
+# ---------------------------------------------------------
+# CHANGE: formatação BRL robusta (negativos e tolerância)
+# ---------------------------------------------------------
+def fmt_brl(v: Any) -> str:
+    """Formata valores em BRL com sinal correto e tolerância a erro."""
     try:
         val = float(v)
     except (ValueError, TypeError):
         val = 0.0
-    return f"R$ {val:,.2f}".replace(",", "X").replace(".", ",").replace("X", ".")
 
+    abs_val = abs(val)
+    s = f"{abs_val:,.2f}"
+    s = s.replace(",", "X").replace(".", ",").replace("X", ".")
+    prefix = "-" if val < 0 else ""
+    return f"{prefix}R$ {s}"
+
+
+# ---------------------------------------------------------
+# CHANGE: parser de datas defensivo
+# ---------------------------------------------------------
 def parse_date_safe(d):
-    """Converte para date com tolerância a erros (aceita str, date, datetime)."""
+    """Converte para date aceitando date, datetime e ISO string."""
     if d is None:
         return None
     try:
-        if isinstance(d, date):
+        if isinstance(d, date) and not isinstance(d, datetime):
             return d
         if isinstance(d, datetime):
             return d.date()
-        return pd.to_datetime(d, dayfirst=False, errors="coerce").date()
+        return pd.to_datetime(d, errors="coerce").date()
     except Exception:
         return None
 
+
 def fmt_date_br(d) -> str:
-    """Formata qualquer data para dd/mm/aaaa; retorna '—' se ausente/ inválida."""
+    """Formata qualquer data como dd/mm/aaaa ou '—'."""
     obj = parse_date_safe(d)
     return obj.strftime("%d/%m/%Y") if obj else "—"
 
-def fmt_series_date_br(s: pd.Series) -> pd.Series:
-    """Formata uma Series de datas para dd/mm/aaaa (strings)."""
-    return s.apply(lambda x: fmt_date_br(x))
 
+def fmt_series_date_br(s: pd.Series) -> pd.Series:
+    """Formata uma Series de datas para dd/mm/aaaa."""
+    return s.apply(fmt_date_br)
+
+
+# ---------------------------------------------------------
+# CHANGE: helper de chaves únicas para widgets Streamlit
+# ---------------------------------------------------------
+def key_for(*parts) -> str:
+    """Gera chaves únicas e estáveis para widgets."""
+    return "-".join(str(p) for p in parts if p is not None)
+
+
+# ---------------------------------------------------------
+# Cache & rerun
+# ---------------------------------------------------------
 def clear_cache_and_rerun():
-    """Limpa cache de dados e reroda a app/página."""
+    """Limpa cache de dados e reroda a app."""
     st.cache_data.clear()
     st.rerun()
 
-def data_ref_row(r) -> pd.Timestamp.date:
+
+# ---------------------------------------------------------
+# Helper de data de referência (linha DataFrame)
+# ---------------------------------------------------------
+def data_ref_row(r) -> date | None:
     """
-    Helper: derivar data de referência por linha:
-    - Prioriza data efetiva, se existir
-    - Senão, usa data prevista
+    Deriva data de referência por linha:
+    - data efetiva se existir
+    - senão data prevista
     """
-    return pd.to_datetime(r.get("data_efetiva") or r.get("data_prevista"), errors="coerce").date()
+    return parse_date_safe(r.get("data_efetiva") or r.get("data_prevista"))
