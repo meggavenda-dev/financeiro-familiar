@@ -18,7 +18,7 @@ from services.finance_core import (
 )
 from services.status import derivar_status, status_badge
 from services.competencia import competencia_from_date, label_competencia
-from services.utils import fmt_brl, clear_cache_and_rerun
+from services.utils import fmt_brl, clear_cache_and_rerun, fmt_date_br
 
 # --------------------------------------------------
 # Página
@@ -117,17 +117,19 @@ def soma_por_tipo_e_status(ds, tipo: str, status: str | None = None) -> float:
         total += float(x.get("valor", 0.0))
     return total
 
+# Totais por tipo (mês)
+total_rec = soma_por_tipo_e_status(mes_itens, tipo="receita", status=None)
+total_des = soma_por_tipo_e_status(mes_itens, tipo="despesa", status=None)
+
 # Pagas
 rec_pagas = soma_por_tipo_e_status(mes_itens, tipo="receita", status="paga")
 des_pagas = soma_por_tipo_e_status(mes_itens, tipo="despesa", status="paga")
 
-# Em aberto (não pagas, dentro da competência)
-total_rec = soma_por_tipo_e_status(mes_itens, tipo="receita", status=None)
-total_des = soma_por_tipo_e_status(mes_itens, tipo="despesa", status=None)
+# Em aberto (não pagas)
 rec_abertas = total_rec - rec_pagas
 des_abertas = total_des - des_pagas
 
-# Vencidas (não pagas e com data anterior a hoje)
+# Vencidas
 rec_vencidas = soma_por_tipo_e_status(mes_itens, tipo="receita", status="vencida")
 des_vencidas = soma_por_tipo_e_status(mes_itens, tipo="despesa", status="vencida")
 
@@ -214,12 +216,17 @@ else:
     df = pd.DataFrame(lista_mes)
     df["status"] = df.apply(lambda r: derivar_status(r.get("data_prevista"), r.get("data_efetiva")), axis=1)
     df["status_badge"] = df["status"].apply(status_badge)
-    df["Data prevista"] = pd.to_datetime(df["data_prevista"], errors="coerce").dt.date
-    df["Data efetiva"] = pd.to_datetime(df["data_efetiva"], errors="coerce").dt.date
 
-    df_show = df[["tipo", "descricao", "valor", "Data prevista", "Data efetiva", "status_badge", "id"]].rename(columns={
+    # Colunas formatadas BR
+    df["Data prevista (BR)"] = df["data_prevista"].apply(lambda x: fmt_date_br(x))
+    df["Data efetiva (BR)"] = df["data_efetiva"].apply(lambda x: fmt_date_br(x))
+
+    # Coluna auxiliar para ordenação por data prevista real
+    df["_data_prevista_sort"] = pd.to_datetime(df["data_prevista"], errors="coerce")
+
+    df_show = df[["tipo", "descricao", "valor", "Data prevista (BR)", "Data efetiva (BR)", "status_badge", "id", "_data_prevista_sort"]].rename(columns={
         "tipo": "Tipo", "descricao": "Descrição", "valor": "Valor", "status_badge": "Status", "id": "ID"
-    }).sort_values("Data prevista", ascending=False)
+    }).sort_values("_data_prevista_sort", ascending=False).drop(columns=["_data_prevista_sort"])
 
     # Exportar CSV dos itens filtrados
     csv_bytes = df_show.to_csv(index=False).encode("utf-8")
@@ -236,7 +243,7 @@ else:
         col1, col2, col3, col4, col5 = st.columns([4, 2, 3, 2, 4])
         col1.write(f"**{row['Descrição']}**")
         col2.write(fmt_brl(float(row["Valor"])))
-        col3.write(f"Prevista: {row['Data prevista'] or '—'}")
+        col3.write(f"Prevista: {row['Data prevista (BR)']}")
         col4.write(row["Status"])
         pagar_btn = col5.button("Marcar como paga/recebida", key=f"pay-{r_id}", disabled=(row["Status"] == "✅ Paga"))
         editar_exp = st.expander(f"Editar — {r_id}", expanded=False)
@@ -253,6 +260,7 @@ else:
                 e1, e2, e3 = st.columns(3)
                 novo_tipo = e1.selectbox("Tipo", ["despesa", "receita"], index=["despesa", "receita"].index(alvo.get("tipo", "despesa")))
                 novo_valor = e2.number_input("Valor (R$)", min_value=0.01, step=0.01, value=float(alvo.get("valor", 0.0)))
+                # date_input mostra em UI; persistimos como ISO
                 nova_prev = e3.date_input("Data prevista", value=pd.to_datetime(alvo.get("data_prevista")).date() if alvo.get("data_prevista") else date.today())
 
                 e4 = st.text_input("Descrição", value=alvo.get("descricao", ""))
