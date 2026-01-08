@@ -24,6 +24,16 @@ from services.utils import fmt_brl, fmt_date_br
 from services.layout import responsive_columns, is_mobile
 from services.ui import section
 
+st.set_page_config(
+    page_title="Visão Geral",
+    page_icon="📊",
+    layout="centered",
+    initial_sidebar_state="collapsed",
+)
+
+st.title("📊 Visão Geral")
+st.caption("Dashboard inteligente de saúde financeira familiar")
+
 # -------------------------------------------------
 # Configuração da página (MOBILE-FIRST)
 # -------------------------------------------------
