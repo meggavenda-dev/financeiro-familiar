@@ -1,3 +1,4 @@
+
 # app.py
 import streamlit as st
 import pandas as pd
@@ -7,13 +8,11 @@ from services.app_context import get_context, init_context
 from services.data_loader import load_all, listar_categorias
 from services.finance_core import normalizar_tx, saldo_atual
 from services.status import derivar_status
+from services.utils import fmt_brl
 
 st.set_page_config(page_title="Financeiro Familiar", page_icon="💰", layout="wide")
 st.title("💰 Financeiro Familiar")
 st.caption("Dashboard inteligente de saúde financeira familiar")
-
-def fmt_brl(v: float) -> str:
-    return f"R$ {v:,.2f}".replace(",", "X").replace(".", ",").replace("X", ".")
 
 # -------------------------------------------------
 # Conexão
