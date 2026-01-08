@@ -142,27 +142,48 @@ saldo_prev = rec_prev - des_prev
 saldo_total = sum(saldo_atual(c, transacoes) for c in contas)
 
 # -------------------------------------------------
-# KPIs — Realizado (RESPONSIVO)
+# Helper: renderização segura de KPIs em N colunas
+# -------------------------------------------------
+def render_kpis(items, desktop_cols=4, mobile_cols=1):
+    """
+    items: lista de tuplas (label, value, help?) ou (label, value)
+    Distribui as métricas nas colunas disponíveis sem estourar índice.
+    """
+    cols = responsive_columns(desktop=desktop_cols, mobile=mobile_cols)
+    n = len(cols)
+    for i, it in enumerate(items):
+        col = cols[i % n]
+        if len(it) == 3:
+            label, value, help_txt = it
+            col.metric(label, value, help=help_txt)
+        else:
+            label, value = it
+            col.metric(label, value)
+
+# -------------------------------------------------
+# KPIs — Realizado (RESPONSIVO, sem IndexError)
 # -------------------------------------------------
 section("📊 Resultado do mês")
 
-cols = responsive_columns(desktop=4, mobile=1)
-
-cols[0].metric("Receitas realizadas", fmt_brl(rec_real))
-cols[1].metric("Despesas realizadas", fmt_brl(des_real))
-cols[2].metric("Saldo realizado", fmt_brl(saldo_real))
-cols[3].metric("Saldo total", fmt_brl(saldo_total))
+kpis_realizado = [
+    ("Receitas realizadas", fmt_brl(rec_real), f"{fmt_date_br(inicio)} → {fmt_date_br(hoje)}"),
+    ("Despesas realizadas", fmt_brl(des_real), f"{fmt_date_br(inicio)} → {fmt_date_br(hoje)}"),
+    ("Saldo realizado", fmt_brl(saldo_real)),
+    ("Saldo total", fmt_brl(saldo_total), "Saldo inicial + transações efetivadas"),
+]
+render_kpis(kpis_realizado, desktop_cols=4, mobile_cols=1)
 
 # -------------------------------------------------
-# KPIs — Previsto
+# KPIs — Previsto (planejamento) — também seguro
 # -------------------------------------------------
 section("📅 Planejamento")
 
-cols_prev = responsive_columns(desktop=3, mobile=1)
-
-cols_prev[0].metric("Receitas previstas", fmt_brl(rec_prev))
-cols_prev[1].metric("Despesas previstas", fmt_brl(des_prev))
-cols_prev[2].metric("Saldo previsto", fmt_brl(saldo_prev))
+kpis_previsto = [
+    ("Receitas previstas", fmt_brl(rec_prev)),
+    ("Despesas previstas", fmt_brl(des_prev)),
+    ("Saldo previsto", fmt_brl(saldo_prev)),
+]
+render_kpis(kpis_previsto, desktop_cols=3, mobile_cols=1)
 
 st.divider()
 
@@ -255,3 +276,4 @@ if not df.empty:
         )
 else:
     st.info("Sem dados para agrupamento.")
+
