@@ -1,26 +1,26 @@
 
 # pages/Usuarios.py
 import streamlit as st
-from services.app_context import get_config, get_context
-from services.data_loader import load_users
+from services.app_context import init_context, get_context
+from services.data_loader import load_all
 from services.permissions import require_admin
 from services.finance_core import novo_id
-from services.utils import save_json_and_refresh
 
 st.set_page_config(page_title="Usuários", page_icon="👥", layout="wide")
 st.title("👥 Usuários")
 
-cfg = get_config()
-if not cfg.connected:
+init_context()
+ctx = get_context()
+if not ctx.get("connected"):
     st.warning("Conecte ao GitHub na página principal.")
     st.stop()
-require_admin(cfg)
+require_admin(ctx)
 
-ctx = get_context()
 gh = ctx.get("gh")
-users_map = load_users((cfg.repo_full_name, cfg.branch_name))
-usuarios = [u for u in users_map.get("content", []) if isinstance(u, dict)]
-sha = users_map.get("sha")
+data = load_all((ctx["repo_full_name"], ctx["branch_name"]))
+usuarios_map = data.get("data/usuarios.json", {"content": [], "sha": None})
+usuarios = [u for u in usuarios_map.get("content", []) if isinstance(u, dict)]
+sha = usuarios_map.get("sha")
 
 st.subheader("➕ Cadastrar novo usuário")
 with st.form("novo_usuario"):
@@ -33,7 +33,10 @@ with st.form("novo_usuario"):
             st.error("Informe um nome válido.")
         else:
             usuarios.append({"id": novo_id("u"), "nome": nome.strip(), "perfil": perfil, "ativo": ativo})
-            save_json_and_refresh(gh, "data/usuarios.json", usuarios, "Novo usuário", sha)
+            gh.put_json("data/usuarios.json", usuarios, "Novo usuário", sha=sha)
+            st.cache_data.clear()
+            st.success(f"Usuário '{nome}' adicionado.")
+            st.rerun()
 
 st.divider()
 st.subheader("📚 Lista de usuários")
@@ -54,7 +57,14 @@ for u in usuarios:
             u["nome"] = (novo_nome or "").strip()
             u["perfil"] = novo_perfil
             u["ativo"] = bool(novo_ativo)
-            save_json_and_refresh(gh, "data/usuarios.json", usuarios, f"Atualiza usuário: {u['id']}", sha)
+            gh.put_json("data/usuarios.json", usuarios, f"Atualiza usuário: {u['id']}", sha=sha)
+            st.cache_data.clear()
+            st.success("Alterações salvas.")
+            st.rerun()
         if st.button("Excluir", key=f"u-excluir-{u['id']}"):
             usuarios = [x for x in usuarios if x.get("id") != u["id"]]
-            save_json_and_refresh(gh, "data/usuarios.json", usuarios, f"Remove usuário: {u['id']}", sha)
+            gh.put_json("data/usuarios.json", usuarios, f"Remove usuário: {u['id']}", sha=sha)
+            st.cache_data.clear()
+            st.success("Usuário removido.")
+            st.rerun()
+``
