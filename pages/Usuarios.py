@@ -67,4 +67,3 @@ for u in usuarios:
             st.cache_data.clear()
             st.success("Usuário removido.")
             st.rerun()
-``
