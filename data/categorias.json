@@ -2,76 +2,91 @@
   {
     "id": "cat1",
     "nome": "Alimentação",
-    "tipo": "despesa"
+    "tipo": "despesa",
+    "codigo": 1
   },
   {
     "id": "cat2",
     "nome": "Salário",
-    "tipo": "receita"
+    "tipo": "receita",
+    "codigo": 2
   },
   {
     "id": "cat-20260108021533-12ea",
     "nome": "Supermercado",
-    "tipo": "despesa"
+    "tipo": "despesa",
+    "codigo": 3
   },
   {
     "id": "cat-20260108021547-91c1",
     "nome": "Compras (Diversas)",
-    "tipo": "despesa"
+    "tipo": "despesa",
+    "codigo": 4
   },
   {
     "id": "cat-20260108021605-7166",
     "nome": "Academia",
-    "tipo": "despesa"
+    "tipo": "despesa",
+    "codigo": 5
   },
   {
     "id": "cat-20260108021646-0438",
     "nome": "Telefone",
-    "tipo": "despesa"
+    "tipo": "despesa",
+    "codigo": 6
   },
   {
     "id": "cat-20260108021658-3d7d",
     "nome": "Internet",
-    "tipo": "despesa"
+    "tipo": "despesa",
+    "codigo": 7
   },
   {
     "id": "cat-20260108021714-18ad",
     "nome": "Tv por Assinatura",
-    "tipo": "despesa"
+    "tipo": "despesa",
+    "codigo": 8
   },
   {
     "id": "cat-20260108021726-6691",
     "nome": "Cursos (Diversos)",
-    "tipo": "despesa"
+    "tipo": "despesa",
+    "codigo": 9
   },
   {
     "id": "cat-20260108021744-8905",
     "nome": "Empréstimos",
-    "tipo": "despesa"
+    "tipo": "despesa",
+    "codigo": 10
   },
   {
     "id": "cat-20260108021815-3e78",
     "nome": "Cartão de Crédito",
-    "tipo": "despesa"
+    "tipo": "despesa",
+    "codigo": 11
   },
   {
     "id": "cat-20260108021828-1e1e",
     "nome": "Financiamento",
-    "tipo": "despesa"
+    "tipo": "despesa",
+    "codigo": 12
   },
   {
     "id": "cat-20260108021902-471a",
     "nome": "Transporte",
-    "tipo": "despesa"
+    "tipo": "despesa",
+    "codigo": 13
   },
   {
     "id": "cat-20260108021912-dc5e",
     "nome": "Gasolina",
-    "tipo": "despesa"
+    "tipo": "despesa",
+    "codigo": 14
   },
   {
     "id": "cat-20260108022011-c982",
     "nome": "Conta de Luz",
-    "tipo": "despesa"
+    "tipo": "despesa",
+    "codigo": 15
   }
 ]
