@@ -20,6 +20,16 @@ from services.status import derivar_status, status_badge
 from services.competencia import competencia_from_date, label_competencia
 from services.utils import fmt_brl, clear_cache_and_rerun, fmt_date_br
 
+# -------------------- helpers locais --------------------
+def _parse_br_date_or_error(raw: str) -> date | None:
+    """
+    Converte 'dd/mm/aaaa' para date. Retorna None se inválido.
+    """
+    try:
+        return datetime.strptime((raw or "").strip(), "%d/%m/%Y").date()
+    except Exception:
+        return None
+
 # --------------------------------------------------
 # Página
 # --------------------------------------------------
@@ -151,7 +161,7 @@ l3c2.metric("💸 Despesas vencidas (mês)", fmt_brl(des_vencidas), help="Despes
 st.divider()
 
 # --------------------------------------------------
-# Cadastro — novo / parcelado
+# Cadastro — novo / parcelado (data BR no campo)
 # --------------------------------------------------
 st.subheader("➕ Nova transação")
 
@@ -163,10 +173,9 @@ with st.form("nova_tx"):
     tipo = c1.selectbox("Tipo", ["despesa", "receita"])
     valor = c2.number_input("Valor (R$)", min_value=0.01, step=0.01)
 
-    # ✅ Date picker + caption BR
-    data_prev = c3.date_input("Data prevista", value=date.today())
-    c3.caption(f"Selecionada: **{fmt_date_br(data_prev)}**")
-
+    # Campo de texto BR com validação
+    data_prev_br_str = c3.text_input("Data prevista (dd/mm/aaaa)", value=fmt_date_br(date.today()))
+    c3.caption("Use o formato **dd/mm/aaaa** (ex.: 08/01/2026)")
     conta_nome = c4.selectbox("Conta", options=list(conta_map.values()))
 
     d1, d2 = st.columns([2, 2])
@@ -182,31 +191,36 @@ with st.form("nova_tx"):
     salvar_btn = st.form_submit_button("Salvar")
 
 if salvar_btn:
-    inv_cat = {v: k for k, v in cat_map.items()}
-    inv_conta = {v: k for k, v in conta_map.items()}
-    base = {
-        "id": novo_id("tx"),
-        "tipo": tipo,
-        "descricao": (descricao or "").strip(),
-        "valor": float(valor),
-        "data_prevista": data_prev.isoformat(),
-        "data_efetiva": (date.today().isoformat() if pagar_hoje else None),
-        "conta_id": inv_conta.get(conta_nome, "c1"),
-        "categoria_id": inv_cat.get(categoria_nome),
-        "excluido": False,
-        "parcelamento": None,
-        "recorrente": False,
-    }
-    if parcelar and int(qtd_parc) > 1:
-        pars = gerar_parcelas(base, int(qtd_parc))
-        for p in pars:
-            criar(transacoes, p)
-        gh.put_json("data/transacoes.json", transacoes, f"Add {qtd_parc} parcelas", sha=sha_trans)
-        clear_cache_and_rerun()
+    # Valida BR e converte para date
+    data_prev_dt = _parse_br_date_or_error(data_prev_br_str)
+    if not data_prev_dt:
+        st.error("Data prevista inválida. Use dd/mm/aaaa.")
     else:
-        criar(transacoes, base)
-        gh.put_json("data/transacoes.json", transacoes, "Add transação", sha=sha_trans)
-        clear_cache_and_rerun()
+        inv_cat = {v: k for k, v in cat_map.items()}
+        inv_conta = {v: k for k, v in conta_map.items()}
+        base = {
+            "id": novo_id("tx"),
+            "tipo": tipo,
+            "descricao": (descricao or "").strip(),
+            "valor": float(valor),
+            "data_prevista": data_prev_dt.isoformat(),  # persistência em ISO
+            "data_efetiva": (date.today().isoformat() if pagar_hoje else None),
+            "conta_id": inv_conta.get(conta_nome, "c1"),
+            "categoria_id": inv_cat.get(categoria_nome),
+            "excluido": False,
+            "parcelamento": None,
+            "recorrente": False,
+        }
+        if parcelar and int(qtd_parc) > 1:
+            pars = gerar_parcelas(base, int(qtd_parc))
+            for p in pars:
+                criar(transacoes, p)
+            gh.put_json("data/transacoes.json", transacoes, f"Add {qtd_parc} parcelas", sha=sha_trans)
+            clear_cache_and_rerun()
+        else:
+            criar(transacoes, base)
+            gh.put_json("data/transacoes.json", transacoes, "Add transação", sha=sha_trans)
+            clear_cache_and_rerun()
 
 # --------------------------------------------------
 # Lista por competência (com ações por linha)
@@ -261,33 +275,37 @@ else:
 
         with editar_exp:
             with st.form(f"edit-{r_id}"):
-                e1, e2, e3 = st.columns(3)
+                e1, e2 = st.columns([2, 2])
                 novo_tipo = e1.selectbox("Tipo", ["despesa", "receita"], index=["despesa", "receita"].index(alvo.get("tipo", "despesa")))
                 novo_valor = e2.number_input("Valor (R$)", min_value=0.01, step=0.01, value=float(alvo.get("valor", 0.0)))
 
-                # ✅ Date picker + caption BR
-                prev_val = pd.to_datetime(alvo.get("data_prevista")).date() if alvo.get("data_prevista") else date.today()
-                nova_prev = e3.date_input("Data prevista", value=prev_val)
-                e3.caption(f"Selecionada: **{fmt_date_br(nova_prev)}**")
+                # Campo de texto BR para edição da data prevista
+                prev_str = fmt_date_br(alvo.get("data_prevista"))  # mostra BR atual
+                nova_prev_str = st.text_input("Data prevista (dd/mm/aaaa)", value=prev_str, key=f"edit-prev-{r_id}")
+                st.caption("Use o formato **dd/mm/aaaa**")
 
-                e4 = st.text_input("Descrição", value=alvo.get("descricao", ""))
-                limpar_pagamento = st.checkbox("Estornar (remover pagamento)?", value=False)
+                e4 = st.text_input("Descrição", value=alvo.get("descricao", ""), key=f"edit-desc-{r_id}")
+                limpar_pagamento = st.checkbox("Estornar (remover pagamento)?", value=False, key=f"edit-estornar-{r_id}")
 
-                ok_btn = st.form_submit_button("Salvar edição")
+                ok_btn = st.form_submit_button("Salvar edição", type="primary")
 
             if ok_btn:
-                item_editado = alvo.copy()
-                item_editado.update({
-                    "tipo": novo_tipo,
-                    "valor": float(novo_valor),
-                    "data_prevista": nova_prev.isoformat(),
-                    "descricao": (e4 or "").strip(),
-                    "data_efetiva": None if limpar_pagamento else alvo.get("data_efetiva"),
-                    "atualizado_em": datetime.now().isoformat(),
-                })
-                atualizar(transacoes, item_editado)
-                gh.put_json("data/transacoes.json", transacoes, f"Edita {r_id}", sha=sha_trans)
-                clear_cache_and_rerun()
+                nova_prev_dt = _parse_br_date_or_error(nova_prev_str)
+                if not nova_prev_dt:
+                    st.error("Data prevista inválida (dd/mm/aaaa).")
+                else:
+                    item_editado = alvo.copy()
+                    item_editado.update({
+                        "tipo": novo_tipo,
+                        "valor": float(novo_valor),
+                        "data_prevista": nova_prev_dt.isoformat(),  # persistência em ISO
+                        "descricao": (e4 or "").strip(),
+                        "data_efetiva": None if limpar_pagamento else alvo.get("data_efetiva"),
+                        "atualizado_em": datetime.now().isoformat(),
+                    })
+                    atualizar(transacoes, item_editado)
+                    gh.put_json("data/transacoes.json", transacoes, f"Edita {r_id}", sha=sha_trans)
+                    clear_cache_and_rerun()
 
         if excluir_btn:
             excluir(transacoes, r_id)
