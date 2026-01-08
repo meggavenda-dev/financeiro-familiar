@@ -39,7 +39,7 @@ DEFAULTS = {
     "data/receitas.json": [],
     "data/contas_pagar.json": [],
     "data/contas_receber.json": [],
-    # Opcional (se você usar orçamento por categoria)
+    # Opcional (orçamentos por categoria)
     "data/orcamentos.json": [],
 }
 
