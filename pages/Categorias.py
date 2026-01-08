@@ -1,16 +1,16 @@
+
 # pages/Categorias.py
 import streamlit as st
 import pandas as pd
 
-from services.app_context import get_context
+from services.app_context import init_context, get_context
 from services.data_loader import load_all, listar_categorias, adicionar_categoria, atualizar_categoria, excluir_categoria
 from services.permissions import require_admin
 
 st.set_page_config(page_title="Categorias", page_icon="🏷️", layout="wide")
 st.title("🏷️ Categorias de Receitas e Despesas")
 
-from services.app_context import init_context, get_context
-
+# Contexto
 init_context()
 ctx = get_context()
 if not ctx.get("connected"):
