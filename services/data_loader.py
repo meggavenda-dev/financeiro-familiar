@@ -4,8 +4,6 @@ import streamlit as st
 from services.app_context import get_context
 from services.finance_core import novo_id
 
-# Defaults para todos os arquivos usados pelo app.
-# Inclui arquivos "legados" para permitir migração automática.
 DEFAULTS = {
     "data/usuarios.json": [
         {"id": "u1", "nome": "Administrador", "perfil": "admin", "ativo": True}
@@ -30,33 +28,33 @@ DEFAULTS = {
         {"id": "cat7", "nome": "Freelancer", "tipo": "receita"},
         {"id": "cat8", "nome": "Aluguel Recebido", "tipo": "receita"},
     ],
-    # Base única e moderna (CORE)
     "data/transacoes.json": [],
     "data/metas.json": [],
     "data/eventos.json": [],
-    # Legado (para migração automática)
     "data/despesas.json": [],
     "data/receitas.json": [],
     "data/contas_pagar.json": [],
     "data/contas_receber.json": [],
-    # Opcional (se você usar orçamento por categoria)
     "data/orcamentos.json": [],
 }
 
+def _sanitizar_lista_de_dicts(gh, path: str, obj, sha: str, commit_msg: str) -> tuple[list, str]:
+    """Sanitiza: garante lista de dicts; comita se remover inválidos."""
+    if not isinstance(obj, list):
+        obj = []
+    clean = [x for x in obj if isinstance(x, dict)]
+    if len(clean) != len(obj):
+        new_sha = gh.put_json(path, clean, commit_msg, sha=sha)
+        return clean, new_sha
+    return obj, sha
+
 def _migrar_legado(gh, data_dict: dict) -> None:
-    """
-    Migra seus arquivos antigos (despesas/receitas/contas_pagar/contas_receber)
-    para o modelo unificado em data/transacoes.json. Executa uma vez
-    somente se transacoes.json estiver vazio.
-    """
+    """Migra dados legados (despesas/receitas/pagar/receber) para transacoes.json se vazio."""
     transacoes = data_dict["data/transacoes.json"]["content"]
     trans_sha = data_dict["data/transacoes.json"]["sha"]
-
-    # Se já há transações, não migrar
     if isinstance(transacoes, list) and len(transacoes) > 0:
         return
 
-    # Coleta conteúdo legado
     despesas = data_dict.get("data/despesas.json", {"content": []})["content"]
     receitas = data_dict.get("data/receitas.json", {"content": []})["content"]
     pagar    = data_dict.get("data/contas_pagar.json", {"content": []})["content"]
@@ -64,7 +62,6 @@ def _migrar_legado(gh, data_dict: dict) -> None:
 
     txs = []
 
-    # Despesas antigas -> transações tipo "despesa"
     if isinstance(despesas, list):
         for d in despesas:
             if not isinstance(d, dict):
@@ -83,7 +80,6 @@ def _migrar_legado(gh, data_dict: dict) -> None:
                 "recorrente": bool(d.get("recorrente", False)),
             })
 
-    # Receitas antigas -> transações tipo "receita"
     if isinstance(receitas, list):
         for r in receitas:
             if not isinstance(r, dict):
@@ -100,7 +96,6 @@ def _migrar_legado(gh, data_dict: dict) -> None:
                 "excluido": bool(r.get("excluido", False)),
             })
 
-    # Contas a pagar -> transações tipo "despesa" futuras
     if isinstance(pagar, list):
         for c in pagar:
             if not isinstance(c, dict):
@@ -117,7 +112,6 @@ def _migrar_legado(gh, data_dict: dict) -> None:
                 "excluido": False,
             })
 
-    # Contas a receber -> transações tipo "receita" futuras
     if isinstance(receber, list):
         for c in receber:
             if not isinstance(c, dict):
@@ -134,7 +128,6 @@ def _migrar_legado(gh, data_dict: dict) -> None:
                 "excluido": False,
             })
 
-    # Se geramos transações, comitar
     if txs:
         new_sha = gh.put_json(
             "data/transacoes.json",
@@ -143,110 +136,68 @@ def _migrar_legado(gh, data_dict: dict) -> None:
             sha=trans_sha
         )
         data_dict["data/transacoes.json"] = {"content": txs, "sha": new_sha}
-        # Limpa cache para refletir estado novo
         st.cache_data.clear()
 
-def _sanitizar_lista_de_dicts(gh, path: str, obj, sha: str, commit_msg: str) -> tuple[list, str]:
-    """
-    Sanitiza um conteúdo de arquivo JSON que deve ser uma lista de dicts.
-    - Se 'obj' não for lista, transforma em lista vazia.
-    - Remove qualquer item que não seja dict.
-    - Se houve alteração, comita e retorna (lista_sanitizada, novo_sha).
-    - Caso contrário, retorna (obj_original, sha_original).
-    """
-    if not isinstance(obj, list):
-        obj = []
-
-    clean = [x for x in obj if isinstance(x, dict)]
-    if len(clean) != len(obj):
-        new_sha = gh.put_json(path, clean, commit_msg, sha=sha)
-        return clean, new_sha
-    return obj, sha
-
+# --------- Loaders fragmentados (por recurso) ---------
 @st.cache_data(ttl=60, show_spinner=False)
-def load_all(cache_key: tuple):
-    """
-    Lê todos os arquivos via GitHubService presente no contexto.
-    Usa (repo_full_name, branch_name) como chave do cache, evitando erro de hash.
-    - Executa migração automática do legado para transações unificadas.
-    - Sanitiza transacoes.json e metas.json (remove itens inválidos que não sejam dict).
-    """
+def load_transactions(key: tuple[str, str]):
     ctx = get_context()
-
-    if not ctx.get("connected"):
-        raise RuntimeError("Não conectado ao GitHub. Informe repositório e token na barra lateral.")
-
     gh = ctx.get("gh")
-    if gh is None:
-        raise RuntimeError("GitHubService não está inicializado.")
-
-    # Carrega todos os arquivos assegurando existência (create-if-missing)
+    # garante existência de todos para migração
     data = {}
     for path, default in DEFAULTS.items():
         obj, sha = gh.ensure_file(path, default)
         data[path] = {"content": obj, "sha": sha}
-
-    # MIGRA LEGADO -> transacoes.json (se estiver vazio)
     _migrar_legado(gh, data)
+    # recarrega transacoes e sanitiza
+    obj, sha = gh.ensure_file("data/transacoes.json", DEFAULTS["data/transacoes.json"])
+    obj, sha = _sanitizar_lista_de_dicts(gh, "data/transacoes.json", obj, sha, "Sanitiza transacoes.json")
+    return {"content": obj, "sha": sha}
 
-    # RECARREGA transacoes.json (após migração) e sanitiza
-    obj, sha = gh.ensure_file("data/transacoes.json", [])
-    obj, sha = _sanitizar_lista_de_dicts(
-        gh, "data/transacoes.json", obj, sha,
-        commit_msg="Sanitiza transacoes.json (remove itens inválidos)"
-    )
-    data["data/transacoes.json"] = {"content": obj, "sha": sha}
-
-    # Sanitiza metas.json também (evita AttributeError em páginas)
-    obj_m, sha_m = gh.ensure_file("data/metas.json", [])
-    obj_m, sha_m = _sanitizar_lista_de_dicts(
-        gh, "data/metas.json", obj_m, sha_m,
-        commit_msg="Sanitiza metas.json (remove itens inválidos)"
-    )
-    data["data/metas.json"] = {"content": obj_m, "sha": sha_m}
-
-    return data
-
-# ---------- Funções utilitárias de categorias ----------
-def listar_categorias(gh) -> tuple[list, str | None]:
-    """Retorna (categorias, sha) garantindo existência do arquivo."""
+@st.cache_data(ttl=120, show_spinner=False)
+def load_categories(key: tuple[str, str]):
+    ctx = get_context()
+    gh = ctx.get("gh")
     cats, sha = gh.ensure_file("data/categorias.json", DEFAULTS["data/categorias.json"])
-    # Sanitiza: apenas dicts
     cats = [c for c in cats if isinstance(c, dict)]
-    return cats, sha
+    return {"content": cats, "sha": sha}
 
-def adicionar_categoria(gh, nome: str, tipo: str = "despesa") -> dict:
-    """Adiciona uma nova categoria ao data/categorias.json."""
-    categorias, sha = listar_categorias(gh)
-    nova = {"id": novo_id("cat"), "nome": (nome or "").strip(), "tipo": tipo}
-    categorias.append(nova)
-    gh.put_json("data/categorias.json", categorias, f"Nova categoria: {nova['nome']}", sha=sha)
-    st.cache_data.clear()
-    return nova
+@st.cache_data(ttl=120, show_spinner=False)
+def load_accounts(key: tuple[str, str]):
+    ctx = get_context()
+    gh = ctx.get("gh")
+    acc, sha = gh.ensure_file("data/contas.json", DEFAULTS["data/contas.json"])
+    acc = [a for a in acc if isinstance(a, dict)]
+    return {"content": acc, "sha": sha}
 
-def atualizar_categoria(gh, categoria_id: str, nome: str | None = None, tipo: str | None = None) -> bool:
-    """Atualiza campos de uma categoria existente."""
-    categorias, sha = listar_categorias(gh)
-    ok = False
-    for c in categorias:
-        if c.get("id") == categoria_id:
-            if nome is not None:
-                c["nome"] = (nome or "").strip()
-            if tipo is not None:
-                c["tipo"] = tipo
-            ok = True
-            break
-    if ok:
-        gh.put_json("data/categorias.json", categorias, f"Atualiza categoria: {categoria_id}", sha=sha)
-        st.cache_data.clear()
-    return ok
+@st.cache_data(ttl=120, show_spinner=False)
+def load_budgets(key: tuple[str, str]):
+    ctx = get_context()
+    gh = ctx.get("gh")
+    obj, sha = gh.ensure_file("data/orcamentos.json", DEFAULTS["data/orcamentos.json"])
+    obj = [o for o in obj if isinstance(o, dict)]
+    return {"content": obj, "sha": sha}
 
-def excluir_categoria(gh, categoria_id: str) -> bool:
-    """Remove categoria por ID. (Hard delete; se preferir, marque como 'excluido')"""
-    categorias, sha = listar_categorias(gh)
-    novo = [c for c in categorias if c.get("id") != categoria_id]
-    if len(novo) == len(categorias):
-        return False
-    gh.put_json("data/categorias.json", novo, f"Remove categoria: {categoria_id}", sha=sha)
-    st.cache_data.clear()
-    return True
+@st.cache_data(ttl=120, show_spinner=False)
+def load_users(key: tuple[str, str]):
+    ctx = get_context()
+    gh = ctx.get("gh")
+    users, sha = gh.ensure_file("data/usuarios.json", DEFAULTS["data/usuarios.json"])
+    users = [u for u in users if isinstance(u, dict)]
+    return {"content": users, "sha": sha}
+
+@st.cache_data(ttl=120, show_spinner=False)
+def load_goals(key: tuple[str, str]):
+    ctx = get_context()
+    gh = ctx.get("gh")
+    metas, sha = gh.ensure_file("data/metas.json", DEFAULTS["data/metas.json"])
+    metas, sha = _sanitizar_lista_de_dicts(gh, "data/metas.json", metas, sha, "Sanitiza metas.json")
+    return {"content": metas, "sha": sha}
+
+@st.cache_data(ttl=120, show_spinner=False)
+def load_events(key: tuple[str, str]):
+    ctx = get_context()
+    gh = ctx.get("gh")
+    ev, sha = gh.ensure_file("data/eventos.json", DEFAULTS["data/eventos.json"])
+    ev = [e for e in ev if isinstance(e, dict)]
+    return {"content": ev, "sha": sha}
