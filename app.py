@@ -8,7 +8,7 @@ from services.app_context import get_context, init_context
 from services.data_loader import load_all, listar_categorias
 from services.finance_core import normalizar_tx, saldo_atual
 from services.status import derivar_status
-from services.utils import fmt_brl
+from services.utils import fmt_brl, data_ref_row
 
 st.set_page_config(page_title="Financeiro Familiar", page_icon="💰", layout="wide")
 st.title("💰 Financeiro Familiar")
@@ -69,10 +69,8 @@ inicio = date(hoje.year, hoje.month, 1)
 
 df = pd.DataFrame(transacoes)
 if not df.empty:
-    df["data_ref"] = pd.to_datetime(
-        df["data_efetiva"].fillna(df["data_prevista"]),
-        errors="coerce"
-    ).dt.date
+    # Deriva data_ref (efetiva => priorizada; senão prevista)
+    df["data_ref"] = df.apply(data_ref_row, axis=1)
     df = df[(df["data_ref"] >= inicio) & (df["data_ref"] <= hoje)]
     df["valor"] = pd.to_numeric(df["valor"], errors="coerce").fillna(0.0)
     df["tipo"] = df["tipo"].astype(str)
@@ -88,10 +86,10 @@ for conta in contas:
     saldo_total += saldo_atual(conta, transacoes)
 
 c1, c2, c3, c4 = st.columns(4)
-c1.metric("Receitas (mês)", fmt_brl(total_receitas))
-c2.metric("Despesas (mês)", fmt_brl(total_despesas))
-c3.metric("Saldo do mês", fmt_brl(saldo_mes))
-c4.metric("Saldo total (contas)", fmt_brl(saldo_total))
+c1.metric("Receitas (mês)", fmt_brl(total_receitas), help="Somatório de receitas do mês corrente (por data efetiva ou prevista)")
+c2.metric("Despesas (mês)", fmt_brl(total_despesas), help="Somatório de despesas do mês corrente (por data efetiva ou prevista)")
+c3.metric("Saldo do mês", fmt_brl(saldo_mes), help="Receitas − Despesas do período")
+c4.metric("Saldo total (contas)", fmt_brl(saldo_total), help="Baseado apenas em transações com data efetiva")
 
 st.divider()
 
@@ -103,9 +101,11 @@ if not df.empty:
     receitas_df["valor_signed"] = receitas_df["valor"]
     despesas_df["valor_signed"] = -despesas_df["valor"]
 
-    movs = pd.concat([receitas_df[["data_ref", "valor_signed"]],
-                      despesas_df[["data_ref", "valor_signed"]]], ignore_index=True)
-    movs = movs.sort_values("data_ref")
+    movs = pd.concat(
+        [receitas_df[["data_ref", "valor_signed"]], despesas_df[["data_ref", "valor_signed"]]],
+        ignore_index=True
+    ).sort_values("data_ref")
+
     saldo_diario = movs.groupby("data_ref")["valor_signed"].sum().cumsum()
     st.line_chart(saldo_diario)
 else:
