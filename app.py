@@ -1,4 +1,3 @@
-
 # app.py
 import sys
 from pathlib import Path
@@ -29,13 +28,13 @@ from services.ui import section
 # Configuração da página (MOBILE-FIRST)
 # -------------------------------------------------
 st.set_page_config(
-    page_title="Financeiro Familiar",
+    page_title="Visão Geral",          # ✅ ALTERADO
     page_icon="💰",
     layout="centered",
     initial_sidebar_state="collapsed",
 )
 
-st.title("💰 Financeiro Familiar")
+st.title("📊 Visão Geral")             # ✅ ALTERADO
 st.caption("Dashboard inteligente de saúde financeira familiar")
 
 # -------------------------------------------------
@@ -96,6 +95,7 @@ with st.sidebar:
     st.divider()
     st.subheader("👤 Perfil")
     st.selectbox("Perfil", ["admin", "comum"], key="perfil")
+
 
 # -------------------------------------------------
 # Helpers locais (normalização robusta)
