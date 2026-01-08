@@ -19,11 +19,13 @@
     "descricao": "Conta de Luz",
     "valor": 192.49,
     "data_prevista": "2026-01-12",
-    "data_efetiva": null,
+    "data_efetiva": "2026-01-08",
     "conta_id": "c1",
     "categoria_id": "cat-20260108022011-c982",
     "excluido": false,
     "parcelamento": null,
-    "recorrente": false
+    "recorrente": false,
+    "status": "planejada",
+    "atualizado_em": "2026-01-08T12:18:57.991727"
   }
 ]
