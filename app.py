@@ -1,5 +1,13 @@
 
 # app.py
+import sys
+from pathlib import Path
+
+# ---- Corrige ImportError: garante a raiz no sys.path ----
+ROOT = Path(__file__).resolve().parent
+if str(ROOT) not in sys.path:
+    sys.path.insert(0, str(ROOT))
+
 import streamlit as st
 import pandas as pd
 from datetime import date
@@ -92,12 +100,14 @@ saldo_total = 0.0
 for conta in contas:
     saldo_total += saldo_atual(conta, transacoes)
 
+# KPIs — Realizado
 c1, c2, c3, c4 = st.columns(4)
 c1.metric("Receitas realizadas (mês)", fmt_brl(rec_real), help="Somatório de receitas com data efetiva no mês corrente")
 c2.metric("Despesas realizadas (mês)", fmt_brl(des_real), help="Somatório de despesas com data efetiva no mês corrente")
 c3.metric("Saldo realizado (mês)", fmt_brl(saldo_real), help="Receitas realizadas − Despesas realizadas")
 c4.metric("Saldo total (contas)", fmt_brl(saldo_total), help="Baseado apenas em transações com data efetiva nas contas")
 
+# KPIs — Previsto
 c5, c6, c7 = st.columns(3)
 c5.metric("Receitas previstas (mês)", fmt_brl(rec_prev), help="Receitas sem data efetiva, previstas para este mês")
 c6.metric("Despesas previstas (mês)", fmt_brl(des_prev), help="Despesas sem data efetiva, previstas para este mês")
@@ -154,11 +164,11 @@ if not df.empty:
         (realizadas_df["data_efetiva_date"] >= inicio) & (realizadas_df["data_efetiva_date"] <= hoje)
     ]
     despesas_df = realizadas_df[realizadas_df["tipo"] == "despesa"].copy()
-    despesas_df["categoria_nome"] = despesas_df["categoria_id"].map(cat_map).fillna("Sem categoria")
-    agg = despesas_df.groupby("categoria_nome")["valor"].sum().sort_values(ascending=False)
-    if agg.empty:
+    if despesas_df.empty:
         st.info("Sem despesas realizadas neste mês.")
     else:
+        despesas_df["categoria_nome"] = despesas_df["categoria_id"].map(cat_map).fillna("Sem categoria")
+        agg = despesas_df.groupby("categoria_nome")["valor"].sum().sort_values(ascending=False)
         st.bar_chart(agg)
 else:
     st.info("Sem dados para agrupar por categoria.")
