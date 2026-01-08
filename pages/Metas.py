@@ -8,15 +8,9 @@ from services.app_context import init_context, get_context
 from services.data_loader import load_all
 from services.utils import fmt_brl, fmt_date_br
 
-# --------------------------------------------------
-# Configuração da página
-# --------------------------------------------------
 st.set_page_config(page_title="Metas Financeiras", page_icon="🎯", layout="wide")
 st.title("🎯 Metas Financeiras")
 
-# --------------------------------------------------
-# Contexto / Conexão
-# --------------------------------------------------
 init_context()
 ctx = get_context()
 if not ctx.get("connected"):
@@ -26,15 +20,10 @@ if not ctx.get("connected"):
 gh = ctx.get("gh")
 is_admin = (ctx.get("perfil") == "admin")
 
-# --------------------------------------------------
-# Carregamento de dados (com sanitização defensiva)
-# --------------------------------------------------
 data = load_all((ctx["repo_full_name"], ctx["branch_name"]))
 metas_map = data.get("data/metas.json", {"content": [], "sha": None})
 metas_raw = metas_map.get("content", [])
 sha_metas = metas_map.get("sha")
-
-# ⚠️ Sanitiza: garante que só vamos trabalhar com dicts
 metas = [m for m in metas_raw if isinstance(m, dict)]
 
 def salvar(mensagem="Update metas financeiras"):
@@ -44,11 +33,7 @@ def salvar(mensagem="Update metas financeiras"):
     st.cache_data.clear()
     st.rerun()
 
-# --------------------------------------------------
-# Helpers
-# --------------------------------------------------
 def meses_restantes(data_meta: str) -> int:
-    """Calcula quantos meses faltam até a data_meta (mínimo 1)."""
     try:
         d = date.fromisoformat(str(data_meta))
         meses = (d.year - date.today().year) * 12 + (d.month - date.today().month)
@@ -57,7 +42,6 @@ def meses_restantes(data_meta: str) -> int:
         return 1
 
 def calc_aporte(meta: dict) -> float:
-    """Aporte mensal sugerido para atingir a meta no prazo."""
     try:
         valor_meta = float(meta.get("valor_meta", 0.0))
         acumulado = float(meta.get("valor_atual", 0.0))
@@ -69,7 +53,6 @@ def calc_aporte(meta: dict) -> float:
     return (valor_meta - acumulado) / meses if meses > 0 else 0.0
 
 def progresso(meta: dict) -> float:
-    """0..1 do progresso da meta."""
     try:
         valor_meta = float(meta.get("valor_meta", 0.0))
         acumulado = float(meta.get("valor_atual", 0.0))
@@ -79,23 +62,16 @@ def progresso(meta: dict) -> float:
         return 0.0
     return min(max(acumulado / valor_meta, 0.0), 1.0)
 
-# --------------------------------------------------
-# Cadastro de nova meta (ADMIN)
-# --------------------------------------------------
+# Cadastro
 if is_admin:
     with st.expander("➕ Cadastrar nova meta"):
         with st.form("nova_meta"):
             nome = st.text_input("Nome da meta")
             valor_meta = st.number_input("Valor da meta (R$)", min_value=1.0)
             data_meta = st.date_input("Data limite")
-
-            # Regras automáticas (opcional)
             tipo_regra = st.selectbox("Regra automática", ["manual", "percentual_receita"])
-            pct = st.number_input("Percentual da receita (0 a 1)", min_value=0.0, max_value=1.0,
-                                  step=0.05, value=0.10, disabled=(tipo_regra != "percentual_receita"))
-
+            pct = st.number_input("Percentual da receita (0 a 1)", min_value=0.0, max_value=1.0, step=0.05, value=0.10, disabled=(tipo_regra != "percentual_receita"))
             salvar_btn = st.form_submit_button("Salvar meta")
-
         if salvar_btn:
             metas.append({
                 "id": f"m-{len(metas)+1}",
@@ -109,9 +85,7 @@ if is_admin:
             })
             salvar("Cria nova meta financeira")
 
-# --------------------------------------------------
-# Exibição das metas (com defesa total)
-# --------------------------------------------------
+# Exibição
 if not metas:
     st.info("Nenhuma meta cadastrada.")
     st.stop()
@@ -132,7 +106,6 @@ for meta in metas:
         pct = progresso(meta)
         st.progress(pct)
         st.caption(f"Progresso: **{pct*100:.1f}%**")
-
         st.write(f"🎯 Meta: **{fmt_brl(valor_meta)}**")
         st.write(f"💰 Acumulado: **{fmt_brl(valor_atual)}**")
         st.write(f"📅 Data limite: **{fmt_date_br(data_limite)}**")
@@ -140,28 +113,17 @@ for meta in metas:
     with col2:
         aporte = calc_aporte(meta)
         meses = meses_restantes(meta.get("data_meta"))
-
         if aporte > 0:
-            st.metric(
-                "Aporte mensal sugerido",
-                fmt_brl(aporte),
-                help=f"Baseado em {meses} mês(es) restante(s)"
-            )
+            st.metric("Aporte mensal sugerido", fmt_brl(aporte), help=f"Baseado em {meses} mês(es) restante(s)")
         else:
             st.success("🎉 Meta atingida ou sem necessidade de aporte.")
 
-        # Admin pode ajustar valor acumulado manualmente
         if is_admin:
             try:
                 atual = float(meta.get("valor_atual", 0.0))
             except Exception:
                 atual = 0.0
-            novo_valor = st.number_input(
-                "Atualizar valor acumulado",
-                min_value=0.0,
-                value=atual,
-                key=f"acc-{meta.get('id','sem-id')}"
-            )
+            novo_valor = st.number_input("Atualizar valor acumulado", min_value=0.0, value=atual, key=f"acc-{meta.get('id','sem-id')}")
             if novo_valor != atual:
                 meta["valor_atual"] = float(novo_valor)
                 salvar("Atualiza valor acumulado de meta")
