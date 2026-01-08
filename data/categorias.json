@@ -33,5 +33,10 @@
     "id": "cat-20260108021658-3d7d",
     "nome": "Internet",
     "tipo": "despesa"
+  },
+  {
+    "id": "cat-20260108021714-18ad",
+    "nome": "Tv por Assinatura",
+    "tipo": "despesa"
   }
 ]
