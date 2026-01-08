@@ -61,9 +61,21 @@ tab_pagar, tab_receber = st.tabs(["💸 A Pagar", "📥 A Receber"])
 # -------------------- A PAGAR (despesa) --------------------
 with tab_pagar:
     st.subheader("💸 Contas a Pagar")
-    pagar_items = [x for x in transacoes if x.get("tipo") == "despesa" and not x.get("excluido")]
+    mostrar_pagas_pagar = st.checkbox("Mostrar itens pagos", value=False, key="mostrar_pagas_pagar")
+
+    pagar_items = []
+    for x in transacoes:
+        if x.get("tipo") != "despesa":
+            continue
+        if x.get("excluido"):
+            continue
+        stx = derivar_status(x.get("data_prevista"), x.get("data_efetiva"))
+        if not mostrar_pagas_pagar and stx == "paga":
+            continue
+        pagar_items.append(x)
+
     if not pagar_items:
-        st.info("Nenhuma conta a pagar cadastrada.")
+        st.info("Nenhuma conta a pagar para o filtro selecionado.")
     else:
         for c in pagar_items:
             prev = parse_date_safe(c.get("data_prevista"))
@@ -91,9 +103,21 @@ with tab_pagar:
 # -------------------- A RECEBER (receita) --------------------
 with tab_receber:
     st.subheader("📥 Contas a Receber")
-    receber_items = [x for x in transacoes if x.get("tipo") == "receita" and not x.get("excluido")]
+    mostrar_pagas_receber = st.checkbox("Mostrar itens recebidos", value=False, key="mostrar_pagas_receber")
+
+    receber_items = []
+    for x in transacoes:
+        if x.get("tipo") != "receita":
+            continue
+        if x.get("excluido"):
+            continue
+        stx = derivar_status(x.get("data_prevista"), x.get("data_efetiva"))
+        if not mostrar_pagas_receber and stx == "paga":
+            continue
+        receber_items.append(x)
+
     if not receber_items:
-        st.info("Nenhuma conta a receber cadastrada.")
+        st.info("Nenhuma conta a receber para o filtro selecionado.")
     else:
         for c in receber_items:
             prev = parse_date_safe(c.get("data_prevista"))
@@ -158,4 +182,4 @@ c4.metric("📥 A Receber (em aberto)", fmt_brl(r_aberto))
 c5.metric("🔴 Vencidas (receber)", fmt_brl(r_vencido))
 c6.metric("🟡 Próx. 7 dias (receber)", fmt_brl(r_prox7))
 
-st.success("✅ Módulo de Contas integrado ao planejamento financeiro.")
+st.success("✅ Módulo de Contas mostra apenas itens em aberto por padrão. Use os checkboxes para auditoria de pagos/recebidos.")
