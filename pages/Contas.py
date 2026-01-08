@@ -4,49 +4,42 @@ import streamlit as st
 import pandas as pd
 from datetime import date, timedelta
 
-from services.app_context import init_context, get_context
-from services.data_loader import load_all
+from services.app_context import get_config, get_context
+from services.data_loader import load_transactions
 from services.permissions import require_admin
-from services.finance_core import normalizar_tx, atualizar
+from services.finance_core import normalizar_tx
 from services.status import derivar_status
-from services.utils import fmt_brl, parse_date_safe, clear_cache_and_rerun
+from services.utils import fmt_brl, parse_date_safe, save_json_and_refresh
 
-# --------------------------------------------------
-# Página
-# --------------------------------------------------
 st.set_page_config(page_title="Contas a Pagar / Receber", page_icon="📅", layout="wide")
 st.title("📅 Contas a Pagar / Receber")
 
-# --------------------------------------------------
-# Contexto
-# --------------------------------------------------
-init_context()
-ctx = get_context()
-if not ctx.get("connected"):
+cfg = get_config()
+if not cfg.connected:
     st.warning("Conecte ao GitHub na página principal antes de usar esta página.")
     st.stop()
+require_admin(cfg)
 
-require_admin(ctx)
+ctx = get_context()
 gh = ctx.get("gh")
 
-# --------------------------------------------------
-# Dados (unificados)
-# --------------------------------------------------
-data = load_all((ctx["repo_full_name"], ctx["branch_name"]))
-trans_map = data["data/transacoes.json"]
-transacoes = [
-    t for t in (normalizar_tx(x) for x in trans_map["content"])
-    if t is not None
-]
+trans_map = load_transactions((cfg.repo_full_name, cfg.branch_name))
+transacoes = [t for t in (normalizar_tx(x) for x in trans_map["content"]) if t is not None]
 sha_trans = trans_map["sha"]
 
-def salvar(transacoes, mensagem: str):
-    gh.put_json("data/transacoes.json", transacoes, mensagem, sha=sha_trans)
-    clear_cache_and_rerun()
+df = pd.DataFrame(transacoes)
+if df.empty:
+    st.info("Nenhuma transação encontrada.")
+    st.stop()
 
-def badge_calc(tx):
-    st_calc = derivar_status(tx.get("data_prevista"), tx.get("data_efetiva"))
-    d = parse_date_safe(tx.get("data_prevista"))
+df["valor"] = pd.to_numeric(df["valor"], errors="coerce").fillna(0.0)
+df["prev"] = pd.to_datetime(df["data_prevista"], errors="coerce").dt.date
+df["status"] = df.apply(lambda r: derivar_status(r.get("data_prevista"), r.get("data_efetiva")), axis=1)
+df = df[~df["excluido"].astype(bool)]
+
+def badge_calc_row(row):
+    st_calc = row["status"]
+    d = row["prev"]
     hoje = date.today()
     if st_calc == "paga":
         return "✅ Paga"
@@ -56,74 +49,40 @@ def badge_calc(tx):
         return "🟡 Próxima"
     return "🟢 Em aberto"
 
+df["badge"] = df.apply(badge_calc_row, axis=1)
+
 tab_pagar, tab_receber = st.tabs(["💸 A Pagar", "📥 A Receber"])
 
-# -------------------- A PAGAR (despesa) --------------------
 with tab_pagar:
-    st.subheader("💸 Contas a Pagar")
-    pagar_items = [x for x in transacoes if x.get("tipo") == "despesa" and not x.get("excluido")]
-    if not pagar_items:
-        st.info("Nenhuma conta a pagar cadastrada.")
-    else:
-        for c in pagar_items:
-            prev = parse_date_safe(c.get("data_prevista"))
-            col1, col2, col3, col4, col5 = st.columns([4,2,3,2,2])
-            col1.write(f"**{c.get('descricao', '—')}**")
-            col2.write(fmt_brl(float(c.get("valor", 0.0))))
-            col3.write(f"Previsto: {prev.strftime('%d/%m/%Y') if prev else '—'}")
-            col4.write(badge_calc(c))
+    st.subheader("💸 A Pagar")
+    pagar_view = df[df["tipo"] == "despesa"].copy().sort_values("prev")
+    st.dataframe(pagar_view[["descricao","valor","prev","badge","id"]], use_container_width=True)
+    sel_ids = st.multiselect("IDs para marcar como pagos", options=list(pagar_view["id"]))
+    if st.button("Marcar selecionados como pagos"):
+        changed = False
+        for tx in transacoes:
+            if tx.get("id") in sel_ids:
+                tx["data_efetiva"] = date.today().isoformat()
+                changed = True
+        if changed:
+            save_json_and_refresh(gh, "data/transacoes.json", transacoes, f"Baixa múltipla pagar ({len(sel_ids)})", sha_trans)
 
-            status_atual = derivar_status(c.get("data_prevista"), c.get("data_efetiva"))
-            novo_status = col5.selectbox(
-                "Status",
-                ["planejada","vencendo","vencida","paga"],
-                index=["planejada","vencendo","vencida","paga"].index(status_atual),
-                key=f"pagar-{c['id']}"
-            )
-
-            if novo_status != status_atual:
-                if novo_status == "paga":
-                    c["data_efetiva"] = date.today().isoformat()
-                else:
-                    c["data_efetiva"] = None
-                atualizar(transacoes, c)
-                salvar(transacoes, f"Update pagar: {c.get('descricao')} -> {novo_status}")
-
-# -------------------- A RECEBER (receita) --------------------
 with tab_receber:
-    st.subheader("📥 Contas a Receber")
-    receber_items = [x for x in transacoes if x.get("tipo") == "receita" and not x.get("excluido")]
-    if not receber_items:
-        st.info("Nenhuma conta a receber cadastrada.")
-    else:
-        for c in receber_items:
-            prev = parse_date_safe(c.get("data_prevista"))
-            col1, col2, col3, col4, col5 = st.columns([4,2,3,2,2])
-            col1.write(f"**{c.get('descricao', '—')}**")
-            col2.write(fmt_brl(float(c.get("valor", 0.0))))
-            col3.write(f"Previsto: {prev.strftime('%d/%m/%Y') if prev else '—'}")
-            col4.write(badge_calc(c))
+    st.subheader("📥 A Receber")
+    receber_view = df[df["tipo"] == "receita"].copy().sort_values("prev")
+    st.dataframe(receber_view[["descricao","valor","prev","badge","id"]], use_container_width=True)
+    sel_ids = st.multiselect("IDs para marcar como recebidos", options=list(receber_view["id"]), key="rec_sel")
+    if st.button("Marcar selecionados como recebidos"):
+        changed = False
+        for tx in transacoes:
+            if tx.get("id") in sel_ids:
+                tx["data_efetiva"] = date.today().isoformat()
+                changed = True
+        if changed:
+            save_json_and_refresh(gh, "data/transacoes.json", transacoes, f"Baixa múltipla receber ({len(sel_ids)})", sha_trans)
 
-            status_atual = derivar_status(c.get("data_prevista"), c.get("data_efetiva"))
-            novo_status = col5.selectbox(
-                "Status",
-                ["planejada","vencendo","vencida","paga"],
-                index=["planejada","vencendo","vencida","paga"].index(status_atual),
-                key=f"receber-{c['id']}"
-            )
-
-            if novo_status != status_atual:
-                if novo_status == "paga":
-                    c["data_efetiva"] = date.today().isoformat()
-                else:
-                    c["data_efetiva"] = None
-                atualizar(transacoes, c)
-                salvar(transacoes, f"Update receber: {c.get('descricao')} -> {novo_status}")
-
-# -------------------- Resumo futuro --------------------
 st.divider()
 st.subheader("📊 Planejamento & Fluxo Futuro (em aberto)")
-
 hoje = date.today()
 
 def resumo_fluxo(lista, tipo):
@@ -159,5 +118,3 @@ c4, c5, c6 = st.columns(3)
 c4.metric("📥 A Receber (em aberto)", fmt_brl(r_aberto))
 c5.metric("🔴 Vencidas (receber)", fmt_brl(r_vencido))
 c6.metric("🟡 Próx. 7 dias (receber)", fmt_brl(r_prox7))
-
-st.success("✅ Módulo de Contas integrado ao planejamento financeiro.")
