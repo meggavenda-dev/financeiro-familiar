@@ -12,119 +12,177 @@ from services.data_loader import (
     excluir_categoria,
 )
 from services.permissions import require_admin
+from services.utils import key_for  # CHANGE
 
-st.set_page_config(page_title="Categorias", page_icon="🏷️", layout="wide")
+st.set_page_config(
+    page_title="Categorias",
+    page_icon="🏷️",
+    layout="wide",
+)
 st.title("🏷️ Categorias")
 
-# ---------------- Contexto ----------------
+# --------------------------------------------------
+# Contexto / Permissões
+# --------------------------------------------------
 init_context()
 ctx = get_context()
+
 if not ctx.get("connected"):
     st.warning("Conecte ao GitHub na página principal.")
     st.stop()
+
 require_admin(ctx)
 
 gh = ctx.get("gh")
-data = load_all((ctx["repo_full_name"], ctx["branch_name"]))
+usuario = ctx.get("usuario_id", "u1")
 
-# ---------------- Dados ----------------
+# --------------------------------------------------
+# Carregamento
+# --------------------------------------------------
+load_all((ctx["repo_full_name"], ctx["branch_name"]))
+
 cats, sha = listar_categorias(gh)
 cats = [c for c in cats if isinstance(c, dict)]
 
-# Garantir que todas têm 'codigo' numérico (auto-preencher ao carregar)
-existing_codes = {c.get("codigo") for c in cats if isinstance(c.get("codigo"), int)}
-next_code = (max(existing_codes) + 1) if existing_codes else 1
+# --------------------------------------------------
+# CHANGE: garantir códigos apenas se necessário
+# --------------------------------------------------
+existing = {c.get("codigo") for c in cats if isinstance(c.get("codigo"), int)}
+next_code = max(existing) + 1 if existing else 1
+
+changed = False
 for c in cats:
-    if c.get("codigo") is None or not isinstance(c.get("codigo"), int):
+    if not isinstance(c.get("codigo"), int):
         c["codigo"] = next_code
         next_code += 1
-# Persistir caso tenha sido gerado código
-gh.put_json("data/categorias.json", cats, "Garantir campo 'codigo' (numérico)", sha=sha)
-st.cache_data.clear()
+        changed = True
 
-# ---------------- Nova categoria ----------------
+if changed:
+    gh.put_json(
+        "data/categorias.json",
+        cats,
+        f"[{usuario}] Normaliza código numérico",
+        sha=sha,
+    )
+    st.cache_data.clear()
+
+# --------------------------------------------------
+# Nova categoria
+# --------------------------------------------------
 with st.expander("➕ Nova categoria", expanded=True):
-    c1, c2, c3 = st.columns([4, 2, 2])
-    with c1:
-        nome_novo = st.text_input("Nome", placeholder="Ex.: Supermercado, Internet, Salário…")
-    with c2:
-        tipo_novo = st.selectbox("Tipo", ["despesa", "receita"])
-    with c3:
-        codigo_novo = st.number_input("Código (opcional)", min_value=1, step=1, format="%d")
+    col1, col2, col3 = st.columns([4, 2, 2])
+
+    nome = col1.text_input("Nome")
+    tipo = col2.selectbox("Tipo", ["despesa", "receita"])
+    codigo = col3.number_input(
+        "Código (opcional)",
+        min_value=1,
+        step=1,
+        format="%d",
+    )
 
     if st.button("Adicionar", type="primary"):
-        if not (nome_novo or "").strip():
+        if not (nome or "").strip():
             st.error("Informe um nome válido.")
         else:
-            nova = adicionar_categoria(gh, nome_novo, tipo_novo, codigo=int(codigo_novo) if codigo_novo else None)
-            st.success(f"Categoria '{nova['nome']}' adicionada (código {nova['codigo']}).")
-            st.rerun()
+            try:
+                nova = adicionar_categoria(
+                    gh,
+                    nome=nome,
+                    tipo=tipo,
+                    codigo=int(codigo) if codigo else None,
+                )
+                st.success(
+                    f"Categoria '{nova['nome']}' adicionada (código {nova['codigo']})."
+                )
+                st.rerun()
+            except Exception as e:
+                st.error(str(e))
 
 st.divider()
 
-# ---------------- Filtros ----------------
+# --------------------------------------------------
+# Filtros
+# --------------------------------------------------
 f1, f2 = st.columns([3, 2])
-filtro_texto = f1.text_input("Buscar por nome/código")
-filtro_tipo = f2.selectbox("Tipo", ["todos", "despesa", "receita"], index=0)
+filtro_texto = f1.text_input("Buscar por nome ou código")
+filtro_tipo = f2.selectbox("Tipo", ["todos", "despesa", "receita"])
 
 df = pd.DataFrame(cats)
-df = df[["codigo", "nome", "tipo", "id"]].sort_values(["tipo", "nome"]).reset_index(drop=True)
+df = df[["codigo", "nome", "tipo", "id"]].sort_values(["tipo", "nome"])
 
 if filtro_texto:
-    s = filtro_texto.strip().lower()
-    df = df[df.apply(lambda r: s in str(r["nome"]).lower() or s in str(r["codigo"]), axis=1)]
+    s = filtro_texto.lower()
+    df = df[df.apply(
+        lambda r: s in str(r["nome"]).lower() or s in str(r["codigo"]),
+        axis=1,
+    )]
 
 if filtro_tipo != "todos":
     df = df[df["tipo"] == filtro_tipo]
 
-# ---------------- Lista compacta com ações ----------------
+# --------------------------------------------------
+# Lista
+# --------------------------------------------------
 st.subheader("📚 Categorias")
+
 if df.empty:
-    st.info("Nenhuma categoria encontrada com os filtros atuais.")
+    st.info("Nenhuma categoria encontrada.")
 else:
     for row in df.to_dict(orient="records"):
         cid = row["id"]
-        codigo = row["codigo"]
-        nome = row["nome"]
-        tipo = row["tipo"]
 
-        col1, col2, col3, col4, col5 = st.columns([2, 4, 2, 2, 2])
-        col1.write(f"**{codigo}**")
-        col2.write(nome)
-        col3.write("Despesa" if tipo == "despesa" else "Receita")
+        c1, c2, c3, c4, c5 = st.columns([2, 4, 2, 2, 2])
 
-        # Editar
-        editar = col4.button("✏️ Editar", key=f"edit-{cid}")
-        excluir = col5.button("🗑️ Excluir", key=f"del-{cid}")
+        c1.write(f"**{row['codigo']}**")
+        c2.write(row["nome"])
+        c3.write("Despesa" if row["tipo"] == "despesa" else "Receita")
+
+        editar = c4.button("✏️ Editar", key=key_for("edit", cid))
+        excluir = c5.button("🗑️ Excluir", key=key_for("del", cid))
 
         if editar:
-            with st.form(f"form-edit-{cid}", clear_on_submit=False):
+            with st.form(key_for("form-edit", cid)):
                 e1, e2, e3 = st.columns([2, 4, 2])
-                novo_codigo = e1.number_input("Código", min_value=1, step=1, format="%d", value=int(codigo))
-                novo_nome = e2.text_input("Nome", value=nome)
-                novo_tipo = e3.selectbox("Tipo", ["despesa", "receita"], index=0 if tipo == "despesa" else 1)
-                salvar_ed = st.form_submit_button("Salvar alterações", type="primary")
 
-            if salvar_ed:
-                # validar código único
-                if any(c for c in cats if c.get("id") != cid and c.get("codigo") == int(novo_codigo)):
-                    st.error(f"Código {novo_codigo} já existe em outra categoria.")
-                elif not (novo_nome or "").strip():
-                    st.error("Nome inválido.")
+                novo_codigo = e1.number_input(
+                    "Código",
+                    min_value=1,
+                    step=1,
+                    format="%d",
+                    value=int(row["codigo"]),
+                )
+                novo_nome = e2.text_input("Nome", value=row["nome"])
+                novo_tipo = e3.selectbox(
+                    "Tipo",
+                    ["despesa", "receita"],
+                    index=0 if row["tipo"] == "despesa" else 1,
+                )
+
+                salvar = st.form_submit_button("Salvar", type="primary")
+
+            if salvar:
+                ok = atualizar_categoria(
+                    gh,
+                    categoria_id=cid,
+                    nome=novo_nome,
+                    tipo=novo_tipo,
+                    codigo=int(novo_codigo),
+                )
+                if ok:
+                    st.success("Categoria atualizada.")
+                    st.rerun()
                 else:
-                    ok = atualizar_categoria(gh, categoria_id=cid, nome=novo_nome, tipo=novo_tipo, codigo=int(novo_codigo))
-                    if ok:
-                        st.success("Categoria atualizada.")
-                        st.rerun()
-                    else:
-                        st.error("Falha ao atualizar.")
+                    st.error("Código já existe em outra categoria.")
 
         if excluir:
             ok = excluir_categoria(gh, cid)
             if ok:
-                st.success(f"Categoria '{nome}' removida.")
+                st.success("Categoria removida.")
                 st.rerun()
             else:
-                st.error("Falha ao remover.")
+                st.error("Falha ao remover categoria.")
 
-st.caption("Dica: use códigos numéricos para facilitar a identificação rápida. Ex.: 101 Supermercado, 201 Internet.")
+st.caption(
+    "💡 Dica: utilize códigos numéricos (ex.: 101 Supermercado, 201 Internet)."
+)
