@@ -7,7 +7,9 @@ from services.finance_core import novo_id
 
 st.set_page_config(page_title="Usuários", page_icon="👥", layout="wide")
 st.title("👥 Usuários")
+from services.app_context import init_context, get_context
 
+init_context()
 ctx = get_context()
 if not ctx.get("connected"):
     st.warning("Conecte ao GitHub na página principal.")
