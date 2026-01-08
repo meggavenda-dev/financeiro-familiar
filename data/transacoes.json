@@ -10,6 +10,20 @@
     "categoria_id": "cat2",
     "excluido": false,
     "parcelamento": null,
+    "recorrente": false,
+    "status": "paga"
+  },
+  {
+    "id": "tx-20260108022050-bc5a",
+    "tipo": "despesa",
+    "descricao": "Conta de Luz",
+    "valor": 192.49,
+    "data_prevista": "2026-01-12",
+    "data_efetiva": null,
+    "conta_id": "c1",
+    "categoria_id": "cat-20260108022011-c982",
+    "excluido": false,
+    "parcelamento": null,
     "recorrente": false
   }
 ]
