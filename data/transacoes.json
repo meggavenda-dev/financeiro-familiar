@@ -65,12 +65,12 @@
     "descricao": "Salário Alynne 1",
     "valor": 4600.0,
     "data_prevista": "2026-01-12",
-    "data_efetiva": "2026-01-09",
+    "data_efetiva": null,
     "conta_id": "c1",
     "categoria_id": "cat2",
     "excluido": false,
     "parcelamento": null,
     "recorrente": false,
-    "atualizado_em": "2026-01-09T02:04:07.392907"
+    "atualizado_em": "2026-01-09T02:04:54.601934"
   }
 ]
